@@ -9,9 +9,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,33 +17,23 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Mail
-import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,26 +42,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.rork.nexa.data.AppState
-import com.rork.nexa.models.AvatarGradients
-import com.rork.nexa.models.VibeEmojis
-import com.rork.nexa.ui.components.EmojiAvatar
+import com.rork.nexa.ui.components.AuthPrimaryButton
 
-private enum class Step { Welcome, Protected, Control, SignUp, Username, Vibe }
+private enum class IntroStep { Welcome, Protected, Control }
 
 @Composable
-fun OnboardingScreen(onDone: () -> Unit) {
-    var step by remember { mutableStateOf(Step.Welcome) }
-    var contact by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
-    var pickedEmoji by remember { mutableStateOf("😎") }
-    var pickedGradient by remember { mutableIntStateOf(0) }
+fun OnboardingScreen(
+    onSignUp: () -> Unit,
+    onLogin: () -> Unit,
+) {
+    var step by remember { mutableStateOf(IntroStep.Welcome) }
 
     Box(
         modifier = Modifier
@@ -90,7 +72,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
         ) { current ->
             when (current) {
-                Step.Welcome -> WelcomePage(
+                IntroStep.Welcome -> IntroPage(
                     accent = Brush.linearGradient(
                         listOf(
                             MaterialTheme.colorScheme.primary,
@@ -104,10 +86,13 @@ fun OnboardingScreen(onDone: () -> Unit) {
                     body = "A messaging app built for real conversations — without the noise of public feeds.",
                     primaryLabel = "Get started",
                     indicator = 0,
-                    onPrimary = { step = Step.Protected },
+                    onPrimary = { step = IntroStep.Protected },
                     onBack = null,
+                    showAuthLinks = false,
+                    onSignUp = onSignUp,
+                    onLogin = onLogin,
                 )
-                Step.Protected -> WelcomePage(
+                IntroStep.Protected -> IntroPage(
                     accent = Brush.linearGradient(
                         listOf(
                             MaterialTheme.colorScheme.primary,
@@ -121,10 +106,13 @@ fun OnboardingScreen(onDone: () -> Unit) {
                     body = "Bullying or harmful messages get a gentle nudge before they reach anyone — for you and from you.",
                     primaryLabel = "Continue",
                     indicator = 1,
-                    onPrimary = { step = Step.Control },
-                    onBack = { step = Step.Welcome },
+                    onPrimary = { step = IntroStep.Control },
+                    onBack = { step = IntroStep.Welcome },
+                    showAuthLinks = false,
+                    onSignUp = onSignUp,
+                    onLogin = onLogin,
                 )
-                Step.Control -> WelcomePage(
+                IntroStep.Control -> IntroPage(
                     accent = Brush.linearGradient(
                         listOf(
                             MaterialTheme.colorScheme.tertiary,
@@ -136,38 +124,13 @@ fun OnboardingScreen(onDone: () -> Unit) {
                     title = "You're in control",
                     subtitle = "Tune Shield to fit you",
                     body = "Pick how much help you want. Change it anytime in settings.",
-                    primaryLabel = "Set up account",
+                    primaryLabel = "Create account",
                     indicator = 2,
-                    onPrimary = { step = Step.SignUp },
-                    onBack = { step = Step.Protected },
-                )
-                Step.SignUp -> SignUpPage(
-                    contact = contact,
-                    onContact = { contact = it },
-                    onContinue = { step = Step.Username },
-                    onBack = { step = Step.Control },
-                )
-                Step.Username -> UsernamePage(
-                    username = username,
-                    onUsername = { username = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }.take(20) },
-                    onContinue = { step = Step.Vibe },
-                    onBack = { step = Step.SignUp },
-                )
-                Step.Vibe -> VibePage(
-                    emoji = pickedEmoji,
-                    gradient = pickedGradient,
-                    onEmoji = { pickedEmoji = it },
-                    onGradient = { pickedGradient = it },
-                    onDone = {
-                        AppState.username = username.ifBlank { "you" }
-                        AppState.displayName = username.ifBlank { "You" }.replaceFirstChar { it.uppercase() }
-                        AppState.avatarEmoji = pickedEmoji
-                        AppState.avatarGradientIndex = pickedGradient
-                        AppState.vibeEmoji = pickedEmoji
-                        AppState.hasOnboarded = true
-                        onDone()
-                    },
-                    onBack = { step = Step.Username },
+                    onPrimary = onSignUp,
+                    onBack = { step = IntroStep.Protected },
+                    showAuthLinks = true,
+                    onSignUp = onSignUp,
+                    onLogin = onLogin,
                 )
             }
         }
@@ -175,7 +138,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
 }
 
 @Composable
-private fun WelcomePage(
+private fun IntroPage(
     accent: Brush,
     icon: ImageVector,
     eyebrow: String,
@@ -186,6 +149,9 @@ private fun WelcomePage(
     indicator: Int,
     onPrimary: () -> Unit,
     onBack: (() -> Unit)?,
+    showAuthLinks: Boolean,
+    onSignUp: () -> Unit,
+    onLogin: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -202,6 +168,14 @@ private fun WelcomePage(
             }
             Spacer(Modifier.weight(1f))
             PageDots(count = 3, current = indicator)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "Log in",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable { onLogin() },
+            )
         }
         Spacer(Modifier.weight(0.4f))
 
@@ -250,240 +224,27 @@ private fun WelcomePage(
             lineHeight = 22.sp,
         )
         Spacer(Modifier.weight(1f))
-        PrimaryButton(primaryLabel, onPrimary)
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun SignUpPage(
-    contact: String,
-    onContact: (String) -> Unit,
-    onContinue: () -> Unit,
-    onBack: () -> Unit,
-) {
-    val isEmail = contact.contains("@")
-    val canContinue = contact.length >= 5
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 20.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CircleIcon(Icons.AutoMirrored.Filled.ArrowBack, onBack)
-        }
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Create your account",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Use your phone or email. We'll keep it private.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp,
-        )
-        Spacer(Modifier.height(28.dp))
-
-        InputField(
-            value = contact,
-            onChange = onContact,
-            placeholder = "Phone or email",
-            leadingIcon = if (isEmail) Icons.Outlined.Mail else Icons.Outlined.Phone,
-        )
-        Spacer(Modifier.height(14.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                .padding(14.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Lock,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "End-to-end encrypted by default",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        Spacer(Modifier.height(40.dp))
-        PrimaryButton("Continue", onContinue, enabled = canContinue)
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun UsernamePage(
-    username: String,
-    onUsername: (String) -> Unit,
-    onContinue: () -> Unit,
-    onBack: () -> Unit,
-) {
-    val canContinue = username.length >= 3
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 20.dp),
-    ) {
-        Row { CircleIcon(Icons.AutoMirrored.Filled.ArrowBack, onBack) }
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Pick a username",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "This is how friends will find you on Nexa.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp,
-        )
-        Spacer(Modifier.height(28.dp))
-        InputField(
-            value = username,
-            onChange = onUsername,
-            placeholder = "yourname",
-            leadingIcon = Icons.Outlined.AlternateEmail,
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            if (username.isNotBlank()) "nexa.app/@$username" else "Letters, numbers, underscores",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-        )
-        Spacer(Modifier.weight(1f))
-        Spacer(Modifier.height(40.dp))
-        PrimaryButton("Continue", onContinue, enabled = canContinue)
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun VibePage(
-    emoji: String,
-    gradient: Int,
-    onEmoji: (String) -> Unit,
-    onGradient: (Int) -> Unit,
-    onDone: () -> Unit,
-    onBack: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 20.dp),
-    ) {
-        Row { CircleIcon(Icons.AutoMirrored.Filled.ArrowBack, onBack) }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "Pick your vibe",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Choose an emoji and color — this is your avatar.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp,
-        )
-        Spacer(Modifier.height(28.dp))
-
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            EmojiAvatar(
-                emoji = emoji,
-                gradientIndex = gradient,
-                size = 132.dp,
-            )
-        }
-        Spacer(Modifier.height(28.dp))
-
-        Text(
-            "EMOJI",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.2.sp,
-        )
-        Spacer(Modifier.height(10.dp))
-        val rows = VibeEmojis.chunked(5)
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            rows.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    row.forEach { e ->
-                        val active = e == emoji
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                                )
-                                .border(
-                                    if (active) 2.dp else 0.dp,
-                                    if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                    RoundedCornerShape(18.dp),
-                                )
-                                .clickable { onEmoji(e) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(e, fontSize = 26.sp)
-                        }
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "COLOR",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.2.sp,
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AvatarGradients.forEachIndexed { idx, g ->
-                val active = idx == gradient
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Brush.linearGradient(listOf(g.start, g.end)))
-                        .border(
-                            if (active) 3.dp else 0.dp,
-                            MaterialTheme.colorScheme.onBackground,
-                            CircleShape,
-                        )
-                        .clickable { onGradient(idx) },
+        AuthPrimaryButton(label = primaryLabel, onClick = onPrimary)
+        if (showAuthLinks) {
+            Spacer(Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            ) {
+                Text(
+                    "Already have an account? ",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    "Log in",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.clickable { onLogin() },
                 )
             }
         }
-        Spacer(Modifier.height(40.dp))
-        PrimaryButton("Finish", onDone)
         Spacer(Modifier.height(8.dp))
     }
 }
@@ -525,95 +286,5 @@ private fun CircleIcon(icon: ImageVector, onClick: () -> Unit) {
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(18.dp),
         )
-    }
-}
-
-@Composable
-private fun PrimaryButton(label: String, onClick: () -> Unit, enabled: Boolean = true) {
-    val gradient = Brush.linearGradient(
-        listOf(
-            MaterialTheme.colorScheme.primary,
-            MaterialTheme.colorScheme.tertiary,
-        )
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                if (enabled) gradient
-                else Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.surfaceVariant,
-                        MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                )
-            )
-            .clickable(enabled = enabled) { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                label,
-                color = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-            )
-            Spacer(Modifier.width(10.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun InputField(
-    value: String,
-    onChange: (String) -> Unit,
-    placeholder: String,
-    leadingIcon: ImageVector,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-    ) {
-        Icon(
-            imageVector = leadingIcon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        Box(modifier = Modifier.fillMaxWidth()) {
-            if (value.isEmpty()) {
-                Text(
-                    placeholder,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 15.sp,
-                )
-            }
-            BasicTextField(
-                value = value,
-                onValueChange = onChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
     }
 }

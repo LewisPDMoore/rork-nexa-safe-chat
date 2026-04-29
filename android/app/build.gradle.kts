@@ -15,6 +15,17 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField(
+            "String",
+            "SUPABASE_URL",
+            "\"${System.getenv("EXPO_PUBLIC_SUPABASE_URL") ?: ""}\""
+        )
+        buildConfigField(
+            "String",
+            "SUPABASE_ANON_KEY",
+            "\"${System.getenv("EXPO_PUBLIC_SUPABASE_ANON_KEY") ?: ""}\""
+        )
     }
 
     buildTypes {
@@ -63,6 +74,7 @@ dependencies {
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.json)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.koin.androidx.compose)

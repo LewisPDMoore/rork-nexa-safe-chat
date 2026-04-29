@@ -6,35 +6,128 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.rork.nexa.data.AppState
+import com.rork.nexa.data.IntroPrefs
+import com.rork.nexa.data.auth.SessionStatus
 import com.rork.nexa.ui.screens.ChatDetailScreen
 import com.rork.nexa.ui.screens.OnboardingScreen
 import com.rork.nexa.ui.screens.ParentDashboardScreen
 import com.rork.nexa.ui.screens.RootScaffold
+import com.rork.nexa.ui.screens.SplashScreen
+import com.rork.nexa.ui.screens.VibePickScreen
+import com.rork.nexa.ui.screens.auth.LoginScreen
+import com.rork.nexa.ui.screens.auth.SignUpScreen
+import com.rork.nexa.viewmodels.AuthViewModel
 
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
-    val start = if (AppState.hasOnboarded) "root" else "onboarding"
+    val authViewModel: AuthViewModel = viewModel()
+    val status by authViewModel.status.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    LaunchedEffect(status) {
+        when (val s = status) {
+            is SessionStatus.Authenticated -> {
+                s.profile?.let { p ->
+                    AppState.applyProfile(
+                        username = p.username,
+                        avatarEmoji = p.avatarEmoji,
+                        avatarGradientIndex = p.avatarGradient,
+                    )
+                }
+                val current = navController.currentBackStackEntry?.destination?.route
+                if (current == null || current == "splash" || current == "login" || current == "onboarding") {
+                    navController.navigate("root") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
+            SessionStatus.Unauthenticated -> {
+                AppState.clearUserData()
+                val current = navController.currentBackStackEntry?.destination?.route
+                if (current == null || current == "splash" || current == "root" || current == "vibe") {
+                    val target = if (IntroPrefs.hasSeen(context)) "login" else "onboarding"
+                    navController.navigate(target) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
+            SessionStatus.Loading -> Unit
+        }
+    }
 
     NavHost(
         navController = navController,
-        startDestination = start,
+        startDestination = "splash",
         enterTransition = { fadeIn(tween(200)) },
         exitTransition = { fadeOut(tween(200)) },
     ) {
+        composable("splash") {
+            SplashScreen()
+        }
         composable("onboarding") {
             OnboardingScreen(
+                onSignUp = {
+                    IntroPrefs.markSeen(context)
+                    navController.navigate("signup")
+                },
+                onLogin = {
+                    IntroPrefs.markSeen(context)
+                    navController.navigate("login")
+                },
+            )
+        }
+        composable("signup") {
+            SignUpScreen(
+                onSignedUp = {
+                    IntroPrefs.markSeen(context)
+                    navController.navigate("vibe") {
+                        popUpTo("signup") { inclusive = true }
+                    }
+                },
+                onGoToLogin = {
+                    navController.navigate("login") {
+                        popUpTo("signup") { inclusive = true }
+                    }
+                },
+                viewModel = authViewModel,
+            )
+        }
+        composable("login") {
+            LoginScreen(
+                onLoggedIn = {
+                    IntroPrefs.markSeen(context)
+                    navController.navigate("root") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onGoToSignUp = {
+                    navController.navigate("signup") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
+                viewModel = authViewModel,
+            )
+        }
+        composable("vibe") {
+            VibePickScreen(
                 onDone = {
                     navController.navigate("root") {
-                        popUpTo("onboarding") { inclusive = true }
+                        popUpTo(0) { inclusive = true }
                     }
-                }
+                },
+                viewModel = authViewModel,
             )
         }
         composable("root") {

@@ -13,7 +13,6 @@ import com.rork.nexa.ui.theme.ThemeMode
 
 object AppState {
     var themeMode by mutableStateOf(ThemeMode.System)
-    var hasOnboarded by mutableStateOf(false)
     var username by mutableStateOf("")
     var displayName by mutableStateOf("")
     var supervisedByParent by mutableStateOf(false)
@@ -82,6 +81,29 @@ object AppState {
             msg.reactions + emoji
         }
         list[idx] = msg.copy(reactions = newReactions)
+    }
+
+    fun applyProfile(
+        username: String,
+        avatarEmoji: String?,
+        avatarGradientIndex: Int?,
+    ) {
+        this.username = username
+        this.displayName = username.replaceFirstChar { it.uppercase() }
+        this.avatarEmoji = avatarEmoji.orEmpty()
+        this.vibeEmoji = avatarEmoji.orEmpty()
+        this.avatarGradientIndex = avatarGradientIndex ?: 0
+    }
+
+    fun clearUserData() {
+        username = ""
+        displayName = ""
+        avatarEmoji = ""
+        avatarGradientIndex = 0
+        vibeEmoji = ""
+        supervisedByParent = false
+        chats.clear()
+        messagesByChat.clear()
     }
 }
 

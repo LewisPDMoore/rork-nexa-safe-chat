@@ -40,6 +40,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,9 +55,11 @@ import com.rork.nexa.data.AppState
 import com.rork.nexa.data.ShieldLevel
 import com.rork.nexa.ui.components.EmojiAvatar
 import com.rork.nexa.ui.theme.ThemeMode
+import com.rork.nexa.viewmodels.AuthViewModel
 
 @Composable
 fun SettingsScreen(navController: NavController) {
+    val authViewModel: AuthViewModel = viewModel()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -132,7 +135,19 @@ fun SettingsScreen(navController: NavController) {
             Divider()
             LinkRow(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support", "")
             Divider()
-            LinkRow(Icons.AutoMirrored.Outlined.Logout, "Sign out", "", danger = true)
+            LinkRow(
+                icon = Icons.AutoMirrored.Outlined.Logout,
+                title = "Sign out",
+                subtitle = "",
+                danger = true,
+                onClick = {
+                    authViewModel.signOut {
+                        navController.navigate("login") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                },
+            )
         }
     }
 }
