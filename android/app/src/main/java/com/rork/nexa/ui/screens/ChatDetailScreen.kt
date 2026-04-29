@@ -1,0 +1,500 @@
+package com.rork.nexa.ui.screens
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.outlined.AddReaction
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import com.rork.nexa.data.AppState
+import com.rork.nexa.data.MessageRisk
+import com.rork.nexa.data.analyseMessage
+import com.rork.nexa.data.softerSuggestion
+import com.rork.nexa.models.Message
+import com.rork.nexa.ui.components.Avatar
+import com.rork.nexa.ui.components.Dot
+
+@Composable
+fun ChatDetailScreen(chatId: String, navController: NavController) {
+    val chat = remember(chatId) { AppState.chats.firstOrNull { it.id == chatId } }
+    if (chat == null) {
+        LaunchedEffect(Unit) { navController.popBackStack() }
+        return
+    }
+    val messages = AppState.messagesFor(chatId)
+    var input by remember { mutableStateOf("") }
+    val risk by remember { derivedStateOf { analyseMessage(input) } }
+    val suggestion by remember { derivedStateOf { softerSuggestion(input) } }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .imePadding()
+    ) {
+        ChatHeader(
+            name = chat.name,
+            initials = chat.initials,
+            avatarColor = Color(chat.avatarColor),
+            isTyping = chat.isTyping,
+            onBack = { navController.popBackStack() },
+        )
+
+        if (messages.isEmpty()) {
+            EmptyConversation(
+                name = chat.name,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            )
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 14.dp, vertical = 14.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item { EncryptionTag() }
+                items(messages, key = { it.id }) { msg ->
+                    MessageBubble(msg)
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = risk != MessageRisk.Low && suggestion != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            SoftSuggestionCard(
+                suggestion = suggestion ?: "",
+                onUse = { suggestion?.let { input = it } },
+            )
+        }
+
+        ChatInputBar(
+            value = input,
+            onChange = { input = it },
+            onSend = {
+                if (input.isNotBlank()) {
+                    AppState.sendMessage(chatId, input.trim())
+                    input = ""
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ChatHeader(
+    name: String,
+    initials: String,
+    avatarColor: Color,
+    isTyping: Boolean,
+    onBack: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBtn(Icons.AutoMirrored.Filled.ArrowBack, onBack)
+        Spacer(Modifier.width(4.dp))
+        Avatar(initials = initials, color = avatarColor, size = 40.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                name,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Dot(color = MaterialTheme.colorScheme.secondary, size = 6.dp)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (isTyping) "typing\u2026" else "active now",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        IconBtn(Icons.Outlined.Phone) {}
+        Spacer(Modifier.width(4.dp))
+        IconBtn(Icons.Outlined.MoreVert) {}
+    }
+}
+
+@Composable
+private fun IconBtn(icon: ImageVector, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun EncryptionTag() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(13.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "End-to-end encrypted",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyConversation(name: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "Say hi to ${name.split(" ").first()} \uD83D\uDC4B",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Messages here are encrypted end-to-end.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun MessageBubble(msg: Message) {
+    val isMe = msg.isMe
+    val bubbleShape = RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = if (isMe) 20.dp else 6.dp,
+        bottomEnd = if (isMe) 6.dp else 20.dp,
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+    ) {
+        Column(
+            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
+            modifier = Modifier.widthIn(max = 280.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(bubbleShape)
+                    .then(
+                        if (isMe) {
+                            Modifier.background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.tertiary,
+                                    )
+                                )
+                            )
+                        } else {
+                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                        }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    text = msg.text,
+                    color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.5.sp,
+                )
+            }
+            if (msg.reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    msg.reactions.forEach { Text(it, fontSize = 12.sp) }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                msg.timestamp,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SoftSuggestionCard(suggestion: String, onUse: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "That might come across a bit harsh \u2014 want to rephrase?",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Try: \u201C$suggestion\u201D",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable { onUse() }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+            Text(
+                "Use",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatInputBar(
+    value: String,
+    onChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    val sendEnabled = value.isNotBlank()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        InputAction(Icons.Outlined.Image)
+        Spacer(Modifier.width(6.dp))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(22.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f)) {
+                    if (value.isEmpty()) {
+                        Text(
+                            "Message",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp,
+                        )
+                    }
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onChange,
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Outlined.AddReaction,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        if (sendEnabled) {
+            SendButton(onSend)
+        } else {
+            InputAction(Icons.Outlined.Mic)
+        }
+    }
+}
+
+@Composable
+private fun InputAction(icon: ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .clickable { },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun SendButton(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.tertiary,
+                    )
+                )
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.Send,
+            contentDescription = "Send",
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
