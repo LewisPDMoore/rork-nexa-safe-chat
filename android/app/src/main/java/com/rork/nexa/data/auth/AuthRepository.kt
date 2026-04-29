@@ -141,7 +141,7 @@ class AuthRepository private constructor(context: Context) {
 
         val raw = identifier.trim()
         val email = if (raw.contains("@")) raw else resolveUsernameToEmail(raw)
-            ?: throw IllegalStateException("No account found with that username.")
+            ?: throw IllegalStateException("Username not found.")
 
         val resp = client.post("$supabaseUrl/auth/v1/token?grant_type=password") {
             anonHeaders()
@@ -224,10 +224,10 @@ class AuthRepository private constructor(context: Context) {
     suspend fun searchUsersByPrefix(query: String): Result<List<Profile>> = runCatching {
         val auth = _status.value as? SessionStatus.Authenticated
             ?: throw IllegalStateException("Not signed in")
-        val q = query.trim().lowercase()
+        val q = query.trim().lowercase().replace("%", "").replace("_", "")
         if (q.isBlank()) return@runCatching emptyList<Profile>()
         val myId = auth.session.user?.id
-        val resp = client.get("$supabaseUrl/rest/v1/profiles?select=*&username=ilike.$q*&order=username.asc&limit=20") {
+        val resp = client.get("$supabaseUrl/rest/v1/profiles?select=*&username=ilike.$q%25&order=username.asc&limit=20") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
         }
