@@ -3,10 +3,10 @@ package com.rork.nexa.data.auth
 import android.content.Context
 import com.rork.nexa.BuildConfig
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.headers
@@ -27,7 +27,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import java.time.Instant
 
 class AuthRepository private constructor(context: Context) {
 
@@ -42,7 +44,7 @@ class AuthRepository private constructor(context: Context) {
     private val client = HttpClient(Android) {
         expectSuccess = false
         install(ContentNegotiation) { json(json) }
-        HttpResponseValidator { validateResponse { /* handled per call */ } }
+        HttpResponseValidator { validateResponse { /* per call */ } }
     }
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -72,6 +74,11 @@ class AuthRepository private constructor(context: Context) {
         result.onSuccess { session ->
             persist(session)
             val profile = runCatching { fetchProfile(session) }.getOrNull()
+            if (profile != null && isCurrentlyBanned(profile.bannedUntil)) {
+                clearPersisted()
+                _status.value = SessionStatus.Banned(profile.bannedUntil, profile.banReason)
+                return
+            }
             _status.value = SessionStatus.Authenticated(session, profile)
         }.onFailure {
             clearPersisted()
@@ -83,6 +90,7 @@ class AuthRepository private constructor(context: Context) {
         email: String,
         username: String,
         password: String,
+        parentId: String? = null,
     ): Result<Unit> = runCatching {
         require(isConfigured) { "Backend is not configured." }
         val resp: HttpResponse = client.post("$supabaseUrl/auth/v1/signup") {
@@ -103,6 +111,7 @@ class AuthRepository private constructor(context: Context) {
                     id = session.user?.id ?: error("No user id from sign up"),
                     username = username.trim().lowercase(),
                     email = email.trim(),
+                    parentId = parentId,
                 )
             )
         }
@@ -116,29 +125,60 @@ class AuthRepository private constructor(context: Context) {
             throw IllegalStateException("Couldn't save your profile. Try again.")
         }
 
-        persist(session)
-        val profile = runCatching { fetchProfile(session) }.getOrNull()
-        _status.value = SessionStatus.Authenticated(session, profile)
+        if (parentId == null) {
+            persist(session)
+            val profile = runCatching { fetchProfile(session) }.getOrNull()
+            _status.value = SessionStatus.Authenticated(session, profile)
+        }
     }
 
     suspend fun signIn(
-        email: String,
+        identifier: String,
         password: String,
         rememberMe: Boolean,
     ): Result<Unit> = runCatching {
         require(isConfigured) { "Backend is not configured." }
+
+        val raw = identifier.trim()
+        val email = if (raw.contains("@")) raw else resolveUsernameToEmail(raw)
+            ?: throw IllegalStateException("No account found with that username.")
+
         val resp = client.post("$supabaseUrl/auth/v1/token?grant_type=password") {
             anonHeaders()
             contentType(ContentType.Application.Json)
-            setBody(PasswordGrantRequest(email = email.trim(), password = password))
+            setBody(PasswordGrantRequest(email = email, password = password))
         }
         if (!resp.status.isSuccess()) throw mapError(resp)
         val session: AuthSession = json.decodeFromString(AuthSession.serializer(), resp.bodyAsText())
 
+        val profile = runCatching { fetchProfile(session) }.getOrNull()
+        if (profile != null && isCurrentlyBanned(profile.bannedUntil)) {
+            runCatching {
+                client.post("$supabaseUrl/auth/v1/logout") {
+                    anonHeaders()
+                    header(HttpHeaders.Authorization, "Bearer ${session.accessToken}")
+                }
+            }
+            clearPersisted()
+            _status.value = SessionStatus.Banned(profile.bannedUntil, profile.banReason)
+            return@runCatching
+        }
+
         prefs.edit().putBoolean(KEY_REMEMBER, rememberMe).apply()
         persist(session)
-        val profile = runCatching { fetchProfile(session) }.getOrNull()
         _status.value = SessionStatus.Authenticated(session, profile)
+    }
+
+    private suspend fun resolveUsernameToEmail(username: String): String? {
+        val u = username.lowercase()
+        val resp = client.get("$supabaseUrl/rest/v1/profiles?username=eq.$u&select=email") {
+            anonHeaders()
+        }
+        if (!resp.status.isSuccess()) return null
+        val list: List<ProfileLookup> = runCatching {
+            json.decodeFromString(ListSerializer(ProfileLookup.serializer()), resp.bodyAsText())
+        }.getOrDefault(emptyList())
+        return list.firstOrNull()?.email
     }
 
     suspend fun signOut() {
@@ -152,6 +192,10 @@ class AuthRepository private constructor(context: Context) {
             }
         }
         clearPersisted()
+        _status.value = SessionStatus.Unauthenticated
+    }
+
+    fun acknowledgeBan() {
         _status.value = SessionStatus.Unauthenticated
     }
 
@@ -177,6 +221,121 @@ class AuthRepository private constructor(context: Context) {
         _status.value = auth.copy(profile = updated)
     }
 
+    suspend fun searchUsers(query: String): Result<List<Profile>> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val q = query.trim().lowercase()
+        val filter = if (q.isBlank()) "" else "&or=(username.ilike.*$q*,email.ilike.*$q*)"
+        val resp = client.get("$supabaseUrl/rest/v1/profiles?select=*&order=username.asc&limit=50$filter") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        json.decodeFromString(ListSerializer(Profile.serializer()), resp.bodyAsText())
+    }
+
+    suspend fun banUser(userId: String, durationHours: Long?, reason: String): Result<Unit> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val until = if (durationHours == null) {
+            "9999-12-31T23:59:59Z"
+        } else {
+            Instant.now().plusSeconds(durationHours * 3600).toString()
+        }
+        val resp = client.post("$supabaseUrl/rest/v1/profiles?id=eq.$userId") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header("Prefer", "return=minimal")
+            header("X-HTTP-Method-Override", "PATCH")
+            contentType(ContentType.Application.Json)
+            setBody(BanPatch(bannedUntil = until, banReason = reason))
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+    }
+
+    suspend fun unbanUser(userId: String): Result<Unit> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val resp = client.post("$supabaseUrl/rest/v1/profiles?id=eq.$userId") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header("Prefer", "return=minimal")
+            header("X-HTTP-Method-Override", "PATCH")
+            contentType(ContentType.Application.Json)
+            setBody(BanPatch(bannedUntil = null, banReason = null))
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+    }
+
+    suspend fun createChildAccount(
+        username: String,
+        password: String,
+    ): Result<Unit> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val parentId = auth.session.user?.id ?: error("No parent id")
+        val email = "child+${parentId.take(8)}.${username.lowercase()}@nexa.app"
+        val savedSession = auth.session
+        val savedProfile = auth.profile
+
+        val result = signUp(email = email, username = username, password = password, parentId = parentId)
+        result.getOrThrow()
+
+        _status.value = SessionStatus.Authenticated(savedSession, savedProfile)
+    }
+
+    suspend fun fileReport(
+        targetUserId: String?,
+        targetMessageId: String?,
+        kind: String,
+        reason: String,
+        contextJson: String? = null,
+    ): Result<Unit> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val reporterId = auth.session.user?.id ?: error("No user id")
+        val resp = client.post("$supabaseUrl/rest/v1/reports") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header("Prefer", "return=minimal")
+            contentType(ContentType.Application.Json)
+            setBody(
+                ReportInsert(
+                    reporterId = reporterId,
+                    targetUserId = targetUserId,
+                    targetMessageId = targetMessageId,
+                    reason = reason,
+                    kind = kind,
+                    messageContextJson = contextJson,
+                )
+            )
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+    }
+
+    suspend fun myReports(): Result<List<ReportRow>> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val uid = auth.session.user?.id ?: error("No user id")
+        val resp = client.get("$supabaseUrl/rest/v1/reports?reporter_id=eq.$uid&select=*&order=created_at.desc") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        json.decodeFromString(ListSerializer(ReportRow.serializer()), resp.bodyAsText())
+    }
+
+    suspend fun pendingReports(): Result<List<ReportRow>> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val resp = client.get("$supabaseUrl/rest/v1/reports?status=eq.pending&select=*&order=created_at.desc&limit=100") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        json.decodeFromString(ListSerializer(ReportRow.serializer()), resp.bodyAsText())
+    }
+
     private suspend fun refreshSession(refreshToken: String): AuthSession {
         val resp = client.post("$supabaseUrl/auth/v1/token?grant_type=refresh_token") {
             anonHeaders()
@@ -195,10 +354,15 @@ class AuthRepository private constructor(context: Context) {
         }
         if (!resp.status.isSuccess()) return null
         val list: List<Profile> = json.decodeFromString(
-            kotlinx.serialization.builtins.ListSerializer(Profile.serializer()),
+            ListSerializer(Profile.serializer()),
             resp.bodyAsText()
         )
         return list.firstOrNull()
+    }
+
+    private fun isCurrentlyBanned(until: String?): Boolean {
+        if (until.isNullOrBlank()) return false
+        return runCatching { Instant.parse(until).isAfter(Instant.now()) }.getOrDefault(false)
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.anonHeaders() {

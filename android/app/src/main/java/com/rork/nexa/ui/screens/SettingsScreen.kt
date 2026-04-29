@@ -33,6 +33,9 @@ import androidx.compose.material.icons.outlined.Nightlight
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.AdminPanelSettings
+import androidx.compose.material.icons.outlined.FamilyRestroom
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +43,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,8 +55,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.ShieldLevel
+import com.rork.nexa.data.auth.SessionStatus
 import com.rork.nexa.ui.components.EmojiAvatar
 import com.rork.nexa.ui.theme.ThemeMode
 import com.rork.nexa.viewmodels.AuthViewModel
@@ -60,6 +66,10 @@ import com.rork.nexa.viewmodels.AuthViewModel
 @Composable
 fun SettingsScreen(navController: NavController) {
     val authViewModel: AuthViewModel = viewModel()
+    val status by authViewModel.status.collectAsStateWithLifecycle()
+    val profile = (status as? SessionStatus.Authenticated)?.profile
+    val isAdmin = profile?.isAdmin == true
+    val isChild = !profile?.parentId.isNullOrBlank()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -102,22 +112,54 @@ fun SettingsScreen(navController: NavController) {
             )
         }
 
-        SettingsSection(title = "Family") {
-            ToggleRow(
-                icon = Icons.Outlined.SupervisorAccount,
-                title = "Supervision",
-                subtitle = "Let a parent see safety summaries (not your messages)",
-                checked = AppState.supervisedByParent,
-                onCheckedChange = { AppState.supervisedByParent = it },
-            )
-            if (AppState.supervisedByParent) {
-                Divider()
+        if (!isChild) {
+            SettingsSection(title = "Family") {
                 LinkRow(
-                    icon = Icons.Outlined.SupervisorAccount,
-                    title = "Open parent dashboard",
-                    subtitle = "Preview what they can see",
+                    icon = Icons.Outlined.FamilyRestroom,
+                    title = "Family Center",
+                    subtitle = "Create a child account linked to you",
                     showChevron = true,
-                    onClick = { navController.navigate("parent") },
+                    onClick = { navController.navigate("family") },
+                )
+                Divider()
+                ToggleRow(
+                    icon = Icons.Outlined.SupervisorAccount,
+                    title = "Supervision preview",
+                    subtitle = "See what a parent dashboard looks like",
+                    checked = AppState.supervisedByParent,
+                    onCheckedChange = { AppState.supervisedByParent = it },
+                )
+                if (AppState.supervisedByParent) {
+                    Divider()
+                    LinkRow(
+                        icon = Icons.Outlined.SupervisorAccount,
+                        title = "Open parent dashboard",
+                        subtitle = "Preview what they can see",
+                        showChevron = true,
+                        onClick = { navController.navigate("parent") },
+                    )
+                }
+            }
+        }
+
+        SettingsSection(title = "Reports") {
+            LinkRow(
+                icon = Icons.Outlined.Flag,
+                title = "Report status",
+                subtitle = "Track reports you've filed",
+                showChevron = true,
+                onClick = { navController.navigate("reports") },
+            )
+        }
+
+        if (isAdmin) {
+            SettingsSection(title = "Moderation") {
+                LinkRow(
+                    icon = Icons.Outlined.AdminPanelSettings,
+                    title = "Admin dashboard",
+                    subtitle = "Search users, ban, broadcast",
+                    showChevron = true,
+                    onClick = { navController.navigate("admin") },
                 )
             }
         }

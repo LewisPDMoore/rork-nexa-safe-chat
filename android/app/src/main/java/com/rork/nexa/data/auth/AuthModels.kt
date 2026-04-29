@@ -55,6 +55,7 @@ data class ProfileInsert(
     val id: String,
     val username: String,
     val email: String,
+    @SerialName("parent_id") val parentId: String? = null,
 )
 
 @Serializable
@@ -64,6 +65,19 @@ data class Profile(
     val email: String,
     @SerialName("avatar_emoji") val avatarEmoji: String? = null,
     @SerialName("avatar_gradient") val avatarGradient: Int? = null,
+    @SerialName("is_admin") val isAdmin: Boolean = false,
+    @SerialName("parent_id") val parentId: String? = null,
+    @SerialName("banned_until") val bannedUntil: String? = null,
+    @SerialName("ban_reason") val banReason: String? = null,
+)
+
+@Serializable
+data class ProfileLookup(
+    val id: String? = null,
+    val email: String,
+    val username: String? = null,
+    @SerialName("banned_until") val bannedUntil: String? = null,
+    @SerialName("ban_reason") val banReason: String? = null,
 )
 
 @Serializable
@@ -72,8 +86,37 @@ data class ProfileAvatarPatch(
     @SerialName("avatar_gradient") val avatarGradient: Int? = null,
 )
 
+@Serializable
+data class BanPatch(
+    @SerialName("banned_until") val bannedUntil: String?,
+    @SerialName("ban_reason") val banReason: String?,
+)
+
+@Serializable
+data class ReportInsert(
+    @SerialName("reporter_id") val reporterId: String,
+    @SerialName("target_user_id") val targetUserId: String? = null,
+    @SerialName("target_message_id") val targetMessageId: String? = null,
+    val reason: String,
+    val kind: String,
+    val status: String = "pending",
+    @SerialName("message_context_json") val messageContextJson: String? = null,
+)
+
+@Serializable
+data class ReportRow(
+    val id: String,
+    @SerialName("reporter_id") val reporterId: String,
+    @SerialName("target_user_id") val targetUserId: String? = null,
+    val reason: String,
+    val kind: String,
+    val status: String,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
 sealed interface SessionStatus {
     data object Loading : SessionStatus
     data object Unauthenticated : SessionStatus
+    data class Banned(val until: String?, val reason: String?) : SessionStatus
     data class Authenticated(val session: AuthSession, val profile: Profile?) : SessionStatus
 }

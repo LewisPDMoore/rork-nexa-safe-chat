@@ -19,9 +19,13 @@ import androidx.navigation.navArgument
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.IntroPrefs
 import com.rork.nexa.data.auth.SessionStatus
+import com.rork.nexa.ui.screens.AdminDashboardScreen
+import com.rork.nexa.ui.screens.BanScreen
 import com.rork.nexa.ui.screens.ChatDetailScreen
+import com.rork.nexa.ui.screens.FamilyCenterScreen
 import com.rork.nexa.ui.screens.OnboardingScreen
 import com.rork.nexa.ui.screens.ParentDashboardScreen
+import com.rork.nexa.ui.screens.ReportStatusScreen
 import com.rork.nexa.ui.screens.RootScaffold
 import com.rork.nexa.ui.screens.SplashScreen
 import com.rork.nexa.ui.screens.VibePickScreen
@@ -47,8 +51,17 @@ fun AppNavigation() {
                     )
                 }
                 val current = navController.currentBackStackEntry?.destination?.route
-                if (current == null || current == "splash" || current == "login" || current == "onboarding") {
+                if (current == null || current == "splash" || current == "login" || current == "onboarding" || current == "banned") {
                     navController.navigate("root") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
+            is SessionStatus.Banned -> {
+                AppState.clearUserData()
+                val current = navController.currentBackStackEntry?.destination?.route
+                if (current != "banned") {
+                    navController.navigate("banned") {
                         popUpTo(0) { inclusive = true }
                     }
                 }
@@ -56,7 +69,7 @@ fun AppNavigation() {
             SessionStatus.Unauthenticated -> {
                 AppState.clearUserData()
                 val current = navController.currentBackStackEntry?.destination?.route
-                if (current == null || current == "splash" || current == "root" || current == "vibe") {
+                if (current == null || current == "splash" || current == "root" || current == "vibe" || current == "banned") {
                     val target = if (IntroPrefs.hasSeen(context)) "login" else "onboarding"
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
@@ -73,9 +86,7 @@ fun AppNavigation() {
         enterTransition = { fadeIn(tween(200)) },
         exitTransition = { fadeOut(tween(200)) },
     ) {
-        composable("splash") {
-            SplashScreen()
-        }
+        composable("splash") { SplashScreen() }
         composable("onboarding") {
             OnboardingScreen(
                 onSignUp = {
@@ -130,9 +141,15 @@ fun AppNavigation() {
                 viewModel = authViewModel,
             )
         }
-        composable("root") {
-            RootScaffold(navController = navController)
+        composable("banned") {
+            val s = status as? SessionStatus.Banned
+            BanScreen(
+                until = s?.until,
+                reason = s?.reason,
+                onContinue = { authViewModel.acknowledgeBan() },
+            )
         }
+        composable("root") { RootScaffold(navController = navController) }
         composable(
             route = "chat/{chatId}",
             arguments = listOf(navArgument("chatId") { type = NavType.StringType }),
@@ -148,6 +165,38 @@ fun AppNavigation() {
             exitTransition = { slideOutHorizontally(tween(240)) { it / 2 } + fadeOut(tween(240)) },
         ) {
             ParentDashboardScreen(navController = navController)
+        }
+        composable(
+            route = "admin",
+            enterTransition = { slideInHorizontally(tween(240)) { it / 2 } + fadeIn(tween(240)) },
+            exitTransition = { slideOutHorizontally(tween(240)) { it / 2 } + fadeOut(tween(240)) },
+        ) {
+            val s = status
+            if (s is SessionStatus.Authenticated && s.profile?.isAdmin == true) {
+                AdminDashboardScreen(navController = navController)
+            } else {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            }
+        }
+        composable(
+            route = "family",
+            enterTransition = { slideInHorizontally(tween(240)) { it / 2 } + fadeIn(tween(240)) },
+            exitTransition = { slideOutHorizontally(tween(240)) { it / 2 } + fadeOut(tween(240)) },
+        ) {
+            val s = status
+            val isChild = (s as? SessionStatus.Authenticated)?.profile?.parentId?.isNotBlank() == true
+            if (isChild) {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            } else {
+                FamilyCenterScreen(navController = navController)
+            }
+        }
+        composable(
+            route = "reports",
+            enterTransition = { slideInHorizontally(tween(240)) { it / 2 } + fadeIn(tween(240)) },
+            exitTransition = { slideOutHorizontally(tween(240)) { it / 2 } + fadeOut(tween(240)) },
+        ) {
+            ReportStatusScreen(navController = navController)
         }
     }
 }

@@ -23,7 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Mail
+import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -104,10 +104,10 @@ fun LoginScreen(
         Spacer(Modifier.height(24.dp))
 
         AuthInputField(
-            value = form.email,
-            onChange = viewModel::setEmail,
-            placeholder = "Email",
-            leadingIcon = Icons.Outlined.Mail,
+            value = form.identifier,
+            onChange = viewModel::setIdentifier,
+            placeholder = "Email or username",
+            leadingIcon = Icons.Outlined.AlternateEmail,
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next,
         )

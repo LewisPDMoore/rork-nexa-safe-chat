@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 
 data class AuthFormState(
     val email: String = "",
+    val identifier: String = "",
     val username: String = "",
     val password: String = "",
     val rememberMe: Boolean = true,
@@ -30,6 +31,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
     val status: StateFlow<SessionStatus> = repo.status
 
     fun setEmail(value: String) = _form.update { it.copy(email = value, error = null) }
+    fun setIdentifier(value: String) = _form.update { it.copy(identifier = value, error = null) }
     fun setUsername(value: String) = _form.update {
         it.copy(
             username = value.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }.take(20),
@@ -84,20 +86,16 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
     fun signIn(onSuccess: () -> Unit) {
         val s = _form.value
-        val email = s.email.trim()
+        val identifier = s.identifier.trim().ifBlank { s.email.trim() }
         val password = s.password
-        if (email.isBlank() || password.isBlank()) {
+        if (identifier.isBlank() || password.isBlank()) {
             _form.update { it.copy(error = "All fields are required.") }
-            return
-        }
-        if (!isValidEmail(email)) {
-            _form.update { it.copy(error = "That email doesn't look right.") }
             return
         }
 
         _form.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            val result = repo.signIn(email = email, password = password, rememberMe = s.rememberMe)
+            val result = repo.signIn(identifier = identifier, password = password, rememberMe = s.rememberMe)
             result
                 .onSuccess {
                     _form.update { AuthFormState(rememberMe = s.rememberMe) }
@@ -107,6 +105,24 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                     _form.update { it.copy(isLoading = false, error = e.message ?: "Something went wrong.") }
                 }
             if (result.isSuccess) _form.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun acknowledgeBan() {
+        repo.acknowledgeBan()
+    }
+
+    fun createChildAccount(
+        username: String,
+        password: String,
+        onDone: (String?) -> Unit,
+    ) {
+        val u = username.trim().lowercase()
+        if (u.length < 3) { onDone("Username must be at least 3 characters."); return }
+        if (password.length < 6) { onDone("Password must be at least 6 characters."); return }
+        viewModelScope.launch {
+            val r = repo.createChildAccount(u, password)
+            onDone(r.exceptionOrNull()?.message)
         }
     }
 
