@@ -33,17 +33,33 @@ import androidx.compose.material.icons.outlined.Nightlight
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.FamilyRestroom
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.SupervisorAccount
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import com.rork.nexa.BuildConfig
+import com.rork.nexa.data.auth.AppConfigRow
+import com.rork.nexa.data.auth.AuthRepository
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -175,6 +191,8 @@ fun SettingsScreen(navController: NavController) {
         SettingsSection(title = "App") {
             LinkRow(Icons.Outlined.Notifications, "Notifications", "Friends, alerts \u00b7 silent for the rest")
             Divider()
+            UpdateRow()
+            Divider()
             LinkRow(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support", "")
             Divider()
             LinkRow(
@@ -191,6 +209,123 @@ fun SettingsScreen(navController: NavController) {
                 },
             )
         }
+    }
+}
+
+@Composable
+private fun UpdateRow() {
+    val context = LocalContext.current
+    val repo = remember { AuthRepository.get(context) }
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var dialog by remember { mutableStateOf<AppConfigRow?>(null) }
+    var upToDate by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !checking) {
+                checking = true
+                upToDate = false
+                scope.launch {
+                    val r = repo.fetchAppConfig()
+                    checking = false
+                    val cfg = r.getOrNull()
+                    val latest = cfg?.latestVersionCode ?: 0
+                    if (cfg != null && latest > BuildConfig.VERSION_CODE) {
+                        dialog = cfg
+                    } else if (r.isFailure) {
+                        Toast.makeText(
+                            context,
+                            r.exceptionOrNull()?.message ?: "Couldn't check for updates.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        upToDate = true
+                    }
+                }
+            }
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconCell(Icons.Outlined.SystemUpdate, MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Check for updates",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+            )
+            Text(
+                when {
+                    checking -> "Checking\u2026"
+                    upToDate -> "You're on the latest version (v${BuildConfig.VERSION_NAME})"
+                    else -> "Current version v${BuildConfig.VERSION_NAME}"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
+        if (checking) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+
+    val cfg = dialog
+    if (cfg != null) {
+        AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Update available") },
+            text = {
+                Column {
+                    Text(
+                        "Version ${cfg.latestVersionName ?: cfg.latestVersionCode}",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        cfg.releaseNotes?.takeIf { it.isNotBlank() } ?: "A new version of Nexa is available.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val url = cfg.downloadUrl
+                    if (!url.isNullOrBlank()) {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }.onFailure {
+                            Toast.makeText(context, "Couldn't open download link.", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(context, "No download link configured.", Toast.LENGTH_SHORT).show()
+                    }
+                    dialog = null
+                }) { Text("Download & Install") }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialog = null }) { Text("Later") }
+            },
+        )
     }
 }
 

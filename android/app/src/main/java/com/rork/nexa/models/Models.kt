@@ -21,6 +21,8 @@ data class Chat(
     val isGroup: Boolean = false,
     val groupSize: Int = 0,
     val sparks: Int = 0,
+    val targetUserId: String? = null,
+    val username: String? = null,
 )
 
 data class Message(

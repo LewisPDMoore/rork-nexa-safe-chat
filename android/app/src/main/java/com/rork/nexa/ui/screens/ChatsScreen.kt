@@ -43,10 +43,16 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.rork.nexa.data.auth.AuthRepository
+import com.rork.nexa.data.auth.Profile
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -131,15 +137,20 @@ fun ChatsScreen(navController: NavController) {
     if (showNewChat) {
         NewChatSheet(
             onDismiss = { showNewChat = false },
-            onAddByUsername = { name ->
-                if (name.isNotBlank()) {
-                    val initials = name.take(2)
-                    val palette = listOf(0xFF7C5CFFL, 0xFFFF6BA8L, 0xFF34E5C8L, 0xFFFFB547L, 0xFF53D593L, 0xFFFF8A8AL)
-                    val color = palette[((name.hashCode() % palette.size) + palette.size) % palette.size]
-                    val id = AppState.startChat(name, initials, color)
-                    showNewChat = false
-                    navController.navigate("chat/$id")
-                }
+            onPickUser = { profile ->
+                val display = profile.username
+                val initials = display.take(2).uppercase()
+                val palette = listOf(0xFF7C5CFFL, 0xFFFF6BA8L, 0xFF34E5C8L, 0xFFFFB547L, 0xFF53D593L, 0xFFFF8A8AL)
+                val color = palette[((display.hashCode() % palette.size) + palette.size) % palette.size]
+                val id = AppState.startChat(
+                    name = display,
+                    initials = initials,
+                    avatarColor = color,
+                    targetUserId = profile.id,
+                    username = profile.username,
+                )
+                showNewChat = false
+                navController.navigate("chat/$id")
             },
         )
     }
@@ -571,10 +582,32 @@ private fun UnreadBadge(count: Int) {
 @Composable
 private fun NewChatSheet(
     onDismiss: () -> Unit,
-    onAddByUsername: (String) -> Unit,
+    onPickUser: (Profile) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val context = LocalContext.current
+    val repo = remember { AuthRepository.get(context) }
     var typed by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    val results = remember { mutableStateListOf<Profile>() }
+    var searched by remember { mutableStateOf(false) }
+
+    LaunchedEffect(typed) {
+        val q = typed.trim()
+        if (q.isBlank()) {
+            results.clear()
+            loading = false
+            searched = false
+            return@LaunchedEffect
+        }
+        delay(300)
+        loading = true
+        val r = repo.searchUsersByPrefix(q)
+        loading = false
+        searched = true
+        results.clear()
+        r.getOrNull()?.let { results.addAll(it) }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -596,33 +629,11 @@ private fun NewChatSheet(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Invite someone or add them by username.",
+                "Search for someone by their @username.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
             )
             Spacer(Modifier.height(18.dp))
-            QuickAction(
-                icon = Icons.Outlined.Share,
-                title = "Invite a friend to Nexa",
-                subtitle = "Send a private invite link",
-                onClick = onDismiss,
-            )
-            Spacer(Modifier.height(10.dp))
-            QuickAction(
-                icon = Icons.Outlined.PersonAdd,
-                title = "Sync contacts",
-                subtitle = "Find friends already on Nexa",
-                onClick = onDismiss,
-            )
-            Spacer(Modifier.height(18.dp))
-            Text(
-                "ADD BY USERNAME",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.2.sp,
-            )
-            Spacer(Modifier.height(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -649,7 +660,7 @@ private fun NewChatSheet(
                     }
                     BasicTextField(
                         value = typed,
-                        onValueChange = { typed = it.filter { c -> c.isLetterOrDigit() || c == '_' }.take(20) },
+                        onValueChange = { typed = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }.take(20) },
                         singleLine = true,
                         textStyle = TextStyle(
                             color = MaterialTheme.colorScheme.onSurface,
@@ -659,24 +670,100 @@ private fun NewChatSheet(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                if (typed.length >= 2) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable { onAddByUsername(typed) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+            }
+            Spacer(Modifier.height(14.dp))
+            when {
+                typed.isBlank() -> {
+                    Text(
+                        "Type a username to search.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+                loading -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 14.dp),
                     ) {
-                        Text(
-                            "Add",
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp,
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
                         )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "Searching\u2026",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+                searched && results.isEmpty() -> {
+                    Text(
+                        "User not found.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 14.dp),
+                    )
+                }
+                else -> {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        results.forEach { p ->
+                            UserResultRow(p) { onPickUser(p) }
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun UserResultRow(profile: Profile, onClick: () -> Unit) {
+    val palette = listOf(0xFF7C5CFFL, 0xFFFF6BA8L, 0xFF34E5C8L, 0xFFFFB547L, 0xFF53D593L, 0xFFFF8A8AL)
+    val color = Color(palette[((profile.username.hashCode() % palette.size) + palette.size) % palette.size])
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Avatar(
+            initials = profile.username.take(2).uppercase(),
+            color = color,
+            size = 42.dp,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "@${profile.username}",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+            )
+            if (!profile.avatarEmoji.isNullOrBlank()) {
+                Text(
+                    profile.avatarEmoji,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.primary)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+        ) {
+            Text(
+                "Chat",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp,
+            )
         }
     }
 }

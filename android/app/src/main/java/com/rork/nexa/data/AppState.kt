@@ -32,8 +32,11 @@ object AppState {
         name: String,
         initials: String,
         avatarColor: Long,
+        targetUserId: String? = null,
+        username: String? = null,
     ): String {
-        val existing = chats.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        val existing = targetUserId?.let { uid -> chats.firstOrNull { it.targetUserId == uid } }
+            ?: chats.firstOrNull { it.name.equals(name, ignoreCase = true) }
         if (existing != null) return existing.id
         val id = "c${System.currentTimeMillis()}"
         chats.add(
@@ -47,6 +50,8 @@ object AppState {
                 safety = SafetyLevel.Safe,
                 avatarColor = avatarColor,
                 initials = initials,
+                targetUserId = targetUserId,
+                username = username,
             )
         )
         return id

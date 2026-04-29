@@ -221,6 +221,34 @@ class AuthRepository private constructor(context: Context) {
         _status.value = auth.copy(profile = updated)
     }
 
+    suspend fun searchUsersByPrefix(query: String): Result<List<Profile>> = runCatching {
+        val auth = _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
+        val q = query.trim().lowercase()
+        if (q.isBlank()) return@runCatching emptyList<Profile>()
+        val myId = auth.session.user?.id
+        val resp = client.get("$supabaseUrl/rest/v1/profiles?select=*&username=ilike.$q*&order=username.asc&limit=20") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        val list = json.decodeFromString(ListSerializer(Profile.serializer()), resp.bodyAsText())
+        list.filter { it.id != myId }
+    }
+
+    suspend fun fetchAppConfig(): Result<AppConfigRow?> = runCatching {
+        require(isConfigured) { "Backend is not configured." }
+        val resp = client.get("$supabaseUrl/rest/v1/app_config?select=*&limit=1") {
+            anonHeaders()
+            (_status.value as? SessionStatus.Authenticated)?.session?.accessToken?.let {
+                header(HttpHeaders.Authorization, "Bearer $it")
+            }
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        val list = json.decodeFromString(ListSerializer(AppConfigRow.serializer()), resp.bodyAsText())
+        list.firstOrNull()
+    }
+
     suspend fun searchUsers(query: String): Result<List<Profile>> = runCatching {
         val auth = _status.value as? SessionStatus.Authenticated
             ?: throw IllegalStateException("Not signed in")

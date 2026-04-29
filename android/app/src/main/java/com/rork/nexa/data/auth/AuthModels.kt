@@ -114,6 +114,15 @@ data class ReportRow(
     @SerialName("created_at") val createdAt: String? = null,
 )
 
+@Serializable
+data class AppConfigRow(
+    @SerialName("latest_version_code") val latestVersionCode: Int? = null,
+    @SerialName("latest_version_name") val latestVersionName: String? = null,
+    @SerialName("release_notes") val releaseNotes: String? = null,
+    @SerialName("download_url") val downloadUrl: String? = null,
+    val mandatory: Boolean = false,
+)
+
 sealed interface SessionStatus {
     data object Loading : SessionStatus
     data object Unauthenticated : SessionStatus
