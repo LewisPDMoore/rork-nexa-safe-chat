@@ -4,10 +4,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,10 +38,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AddReaction
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +72,7 @@ import com.rork.nexa.data.softerSuggestion
 import com.rork.nexa.models.Message
 import com.rork.nexa.ui.components.Avatar
 import com.rork.nexa.ui.components.Dot
+import com.rork.nexa.ui.components.ReactionBar
 
 @Composable
 fun ChatDetailScreen(chatId: String, navController: NavController) {
@@ -81,6 +86,7 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
     val risk by remember { derivedStateOf { analyseMessage(input) } }
     val suggestion by remember { derivedStateOf { softerSuggestion(input) } }
     val listState = rememberLazyListState()
+    var reactionTargetId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
@@ -120,7 +126,15 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
             ) {
                 item { EncryptionTag() }
                 items(messages, key = { it.id }) { msg ->
-                    MessageBubble(msg)
+                    MessageBubble(
+                        msg = msg,
+                        showReactions = reactionTargetId == msg.id,
+                        onLongPress = { reactionTargetId = if (reactionTargetId == msg.id) null else msg.id },
+                        onPickReaction = { emoji ->
+                            AppState.addReaction(chatId, msg.id, emoji)
+                            reactionTargetId = null
+                        },
+                    )
                 }
             }
         }
@@ -265,8 +279,14 @@ private fun EmptyConversation(name: String, modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(msg: Message) {
+private fun MessageBubble(
+    msg: Message,
+    showReactions: Boolean,
+    onLongPress: () -> Unit,
+    onPickReaction: (String) -> Unit,
+) {
     val isMe = msg.isMe
     val bubbleShape = RoundedCornerShape(
         topStart = 20.dp,
@@ -275,58 +295,72 @@ private fun MessageBubble(msg: Message) {
         bottomEnd = if (isMe) 6.dp else 20.dp,
     )
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
-    ) {
-        Column(
-            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 280.dp),
+    Column(modifier = Modifier.fillMaxWidth()) {
+        AnimatedVisibility(
+            visible = showReactions,
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut(),
+            modifier = Modifier.align(if (isMe) Alignment.End else Alignment.Start),
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(bubbleShape)
-                    .then(
-                        if (isMe) {
-                            Modifier.background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.tertiary,
+            ReactionBar(
+                onPick = onPickReaction,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+        ) {
+            Column(
+                horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
+                modifier = Modifier.widthIn(max = 280.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(bubbleShape)
+                        .then(
+                            if (isMe) {
+                                Modifier.background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.tertiary,
+                                        )
                                     )
                                 )
-                            )
-                        } else {
-                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                        }
+                            } else {
+                                Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                            }
+                        )
+                        .combinedClickable(onClick = {}, onLongClick = onLongPress)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        text = msg.text,
+                        color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.5.sp,
                     )
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) {
+                }
+                if (msg.reactions.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        msg.reactions.forEach { Text(it, fontSize = 12.sp) }
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = msg.text,
-                    color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.5.sp,
+                    msg.timestamp,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
-            if (msg.reactions.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                ) {
-                    msg.reactions.forEach { Text(it, fontSize = 12.sp) }
-                }
-            }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                msg.timestamp,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 6.dp),
-            )
         }
     }
 }
@@ -406,8 +440,8 @@ private fun ChatInputBar(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InputAction(Icons.Outlined.Image)
-        Spacer(Modifier.width(6.dp))
+        CameraButton()
+        Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -451,6 +485,32 @@ private fun ChatInputBar(
         } else {
             InputAction(Icons.Outlined.Mic)
         }
+    }
+}
+
+@Composable
+private fun CameraButton() {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.tertiary,
+                    )
+                )
+            )
+            .clickable { },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.PhotoCamera,
+            contentDescription = "Camera",
+            tint = Color.White,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 

@@ -25,8 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,20 +33,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Mail
 import androidx.compose.material.icons.outlined.Phone
-import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,18 +61,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rork.nexa.data.AppState
-import com.rork.nexa.data.MockData
-import com.rork.nexa.models.SuggestedFriend
-import com.rork.nexa.ui.components.Avatar
+import com.rork.nexa.models.AvatarGradients
+import com.rork.nexa.models.VibeEmojis
+import com.rork.nexa.ui.components.EmojiAvatar
 
-private enum class Step { Welcome, Protected, Control, SignUp, Username, Friends }
+private enum class Step { Welcome, Protected, Control, SignUp, Username, Vibe }
 
 @Composable
 fun OnboardingScreen(onDone: () -> Unit) {
     var step by remember { mutableStateOf(Step.Welcome) }
     var contact by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
-    val selectedFriends = remember { mutableStateOf(setOf<String>()) }
+    var pickedEmoji by remember { mutableStateOf("😎") }
+    var pickedGradient by remember { mutableIntStateOf(0) }
 
     Box(
         modifier = Modifier
@@ -152,21 +150,20 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 Step.Username -> UsernamePage(
                     username = username,
                     onUsername = { username = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }.take(20) },
-                    onContinue = { step = Step.Friends },
+                    onContinue = { step = Step.Vibe },
                     onBack = { step = Step.SignUp },
                 )
-                Step.Friends -> FriendsPage(
-                    selected = selectedFriends.value,
-                    onToggle = { name ->
-                        selectedFriends.value = if (selectedFriends.value.contains(name))
-                            selectedFriends.value - name else selectedFriends.value + name
-                    },
+                Step.Vibe -> VibePage(
+                    emoji = pickedEmoji,
+                    gradient = pickedGradient,
+                    onEmoji = { pickedEmoji = it },
+                    onGradient = { pickedGradient = it },
                     onDone = {
                         AppState.username = username.ifBlank { "you" }
                         AppState.displayName = username.ifBlank { "You" }.replaceFirstChar { it.uppercase() }
-                        MockData.suggestedFriends
-                            .filter { selectedFriends.value.contains(it.name) }
-                            .forEach { AppState.startChat(it.name, it.initials, it.color) }
+                        AppState.avatarEmoji = pickedEmoji
+                        AppState.avatarGradientIndex = pickedGradient
+                        AppState.vibeEmoji = pickedEmoji
                         AppState.hasOnboarded = true
                         onDone()
                     },
@@ -382,9 +379,11 @@ private fun UsernamePage(
 }
 
 @Composable
-private fun FriendsPage(
-    selected: Set<String>,
-    onToggle: (String) -> Unit,
+private fun VibePage(
+    emoji: String,
+    gradient: Int,
+    onEmoji: (String) -> Unit,
+    onGradient: (Int) -> Unit,
     onDone: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -393,91 +392,99 @@ private fun FriendsPage(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 0.dp, vertical = 20.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 20.dp),
     ) {
-        Row(modifier = Modifier.padding(horizontal = 28.dp)) {
-            CircleIcon(Icons.AutoMirrored.Filled.ArrowBack, onBack)
-        }
-        Spacer(Modifier.height(24.dp))
-        Column(modifier = Modifier.padding(horizontal = 28.dp)) {
-            Text(
-                "Add a few friends",
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Pick people you actually talk to. You can skip and invite later.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp,
-            )
-        }
+        Row { CircleIcon(Icons.AutoMirrored.Filled.ArrowBack, onBack) }
         Spacer(Modifier.height(20.dp))
-        LazyRow(
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 22.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(MockData.suggestedFriends, key = { it.name }) { f ->
-                FriendChip(f, selected.contains(f.name)) { onToggle(f.name) }
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        Column(modifier = Modifier.padding(horizontal = 28.dp)) {
-            PrimaryButton(
-                if (selected.isEmpty()) "Skip for now" else "Add ${selected.size} & continue",
-                onDone,
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
+        Text(
+            "Pick your vibe",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Choose an emoji and color — this is your avatar.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(28.dp))
 
-@Composable
-private fun FriendChip(friend: SuggestedFriend, selected: Boolean, onClick: () -> Unit) {
-    val border = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .width(96.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.5.dp, border, RoundedCornerShape(22.dp))
-            .clickable { onClick() }
-            .padding(vertical = 16.dp, horizontal = 8.dp),
-    ) {
-        Box {
-            Avatar(
-                initials = friend.initials,
-                color = Color(friend.color),
-                size = 60.dp,
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            EmojiAvatar(
+                emoji = emoji,
+                gradientIndex = gradient,
+                size = 132.dp,
             )
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp),
-                    )
+        }
+        Spacer(Modifier.height(28.dp))
+
+        Text(
+            "EMOJI",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.2.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        val rows = VibeEmojis.chunked(5)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            rows.forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { e ->
+                        val active = e == emoji
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                                )
+                                .border(
+                                    if (active) 2.dp else 0.dp,
+                                    if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    RoundedCornerShape(18.dp),
+                                )
+                                .clickable { onEmoji(e) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(e, fontSize = 26.sp)
+                        }
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(20.dp))
         Text(
-            friend.name,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Medium,
-            fontSize = 13.sp,
+            "COLOR",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.2.sp,
         )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            AvatarGradients.forEachIndexed { idx, g ->
+                val active = idx == gradient
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(g.start, g.end)))
+                        .border(
+                            if (active) 3.dp else 0.dp,
+                            MaterialTheme.colorScheme.onBackground,
+                            CircleShape,
+                        )
+                        .clickable { onGradient(idx) },
+                )
+            }
+        }
+        Spacer(Modifier.height(40.dp))
+        PrimaryButton("Finish", onDone)
+        Spacer(Modifier.height(8.dp))
     }
 }
 

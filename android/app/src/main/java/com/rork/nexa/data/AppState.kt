@@ -19,6 +19,10 @@ object AppState {
     var supervisedByParent by mutableStateOf(false)
     var shieldLevel by mutableStateOf(ShieldLevel.Medium)
 
+    var avatarEmoji by mutableStateOf("")
+    var avatarGradientIndex by mutableStateOf(0)
+    var vibeEmoji by mutableStateOf("")
+
     val chats = mutableStateListOf<Chat>()
     private val messagesByChat = mutableStateMapOf<String, SnapshotStateList<Message>>()
 
@@ -30,7 +34,7 @@ object AppState {
         initials: String,
         avatarColor: Long,
     ): String {
-        val existing = chats.firstOrNull { it.name == name }
+        val existing = chats.firstOrNull { it.name.equals(name, ignoreCase = true) }
         if (existing != null) return existing.id
         val id = "c${System.currentTimeMillis()}"
         chats.add(
@@ -65,6 +69,19 @@ object AppState {
             chats.removeAt(idx)
             chats.add(0, updated)
         }
+    }
+
+    fun addReaction(chatId: String, messageId: String, emoji: String) {
+        val list = messagesFor(chatId)
+        val idx = list.indexOfFirst { it.id == messageId }
+        if (idx < 0) return
+        val msg = list[idx]
+        val newReactions = if (msg.reactions.contains(emoji)) {
+            msg.reactions - emoji
+        } else {
+            msg.reactions + emoji
+        }
+        list[idx] = msg.copy(reactions = newReactions)
     }
 }
 

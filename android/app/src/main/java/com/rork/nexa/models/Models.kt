@@ -20,6 +20,7 @@ data class Chat(
     val isTyping: Boolean = false,
     val isGroup: Boolean = false,
     val groupSize: Int = 0,
+    val sparks: Int = 0,
 )
 
 data class Message(
@@ -40,8 +41,19 @@ data class SafetyAlert(
     val source: String,
 )
 
-data class SuggestedFriend(
+data class AvatarGradient(
     val name: String,
-    val initials: String,
-    val color: Long,
+    val start: Color,
+    val end: Color,
 )
+
+val AvatarGradients = listOf(
+    AvatarGradient("Violet", Color(0xFF7C5CFF), Color(0xFFFF6BA8)),
+    AvatarGradient("Ocean", Color(0xFF34E5C8), Color(0xFF5C9CFF)),
+    AvatarGradient("Sunset", Color(0xFFFFB547), Color(0xFFFF6B6B)),
+    AvatarGradient("Mint", Color(0xFF53D593), Color(0xFF34E5C8)),
+    AvatarGradient("Coral", Color(0xFFFF8A8A), Color(0xFFFFB547)),
+    AvatarGradient("Neon", Color(0xFF7C5CFF), Color(0xFF34E5C8)),
+)
+
+val VibeEmojis = listOf("😎", "🔥", "🌙", "💫", "🎧", "🌈", "🍓", "⚡", "🫧")

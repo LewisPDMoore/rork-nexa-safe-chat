@@ -16,13 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.SupervisorAccount
@@ -42,9 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.rork.nexa.data.AppState
-import com.rork.nexa.data.MockData
-import com.rork.nexa.models.SafetyAlert
-import com.rork.nexa.models.SafetyLevel
 
 @Composable
 fun SafetyScreen(navController: NavController) {
@@ -56,19 +51,37 @@ fun SafetyScreen(navController: NavController) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { SafetyHeader() }
-        item { ShieldStatusCard(score = 92, label = "Calm week") }
+        item { ShieldStatusCard() }
         item { StatsRow() }
         item {
             Text(
-                "This week",
+                "How Shield works",
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.padding(horizontal = 20.dp),
                 fontSize = 16.sp,
             )
         }
-        items(MockData.sampleAlerts, key = { it.id }) { alert ->
-            AlertCard(alert)
+        item {
+            ExplainerCard(
+                emoji = "🧠",
+                title = "Smart message check",
+                body = "Shield reads your drafts on-device and gives a friendly nudge if something sounds harsh.",
+            )
+        }
+        item {
+            ExplainerCard(
+                emoji = "🖼️",
+                title = "Image safety",
+                body = "Risky images get blurred until you tap to confirm.",
+            )
+        }
+        item {
+            ExplainerCard(
+                emoji = "🛟",
+                title = "Heads-up alerts",
+                body = "If a chat starts feeling off, you'll see a calm note here.",
+            )
         }
         if (AppState.supervisedByParent) {
             item { Spacer(Modifier.height(4.dp)) }
@@ -103,7 +116,7 @@ private fun SafetyHeader() {
             color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
-            "How Shield is looking out for you",
+            "Shield is watching quietly",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -111,7 +124,7 @@ private fun SafetyHeader() {
 }
 
 @Composable
-private fun ShieldStatusCard(score: Int, label: String) {
+private fun ShieldStatusCard() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -158,7 +171,7 @@ private fun ShieldStatusCard(score: Int, label: String) {
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Text(
-                        label,
+                        "All clear ✨",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -168,7 +181,7 @@ private fun ShieldStatusCard(score: Int, label: String) {
             Spacer(Modifier.height(20.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    "$score",
+                    "100",
                     color = Color.White,
                     fontSize = 60.sp,
                     fontWeight = FontWeight.Bold,
@@ -183,7 +196,7 @@ private fun ShieldStatusCard(score: Int, label: String) {
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "Higher means calmer chats. Updated automatically.",
+                "Nothing to worry about right now.",
                 color = Color.White.copy(alpha = 0.78f),
                 fontSize = 12.sp,
             )
@@ -217,7 +230,7 @@ private fun StatsRow() {
             icon = Icons.Outlined.VolumeOff,
             tint = MaterialTheme.colorScheme.secondary,
             value = "0",
-            label = "auto\nmuted",
+            label = "on quiet\nhours",
             modifier = Modifier.weight(1f),
         )
     }
@@ -269,12 +282,7 @@ private fun StatTile(
 }
 
 @Composable
-private fun AlertCard(alert: SafetyAlert) {
-    val icon: ImageVector = when (alert.level) {
-        SafetyLevel.Safe -> Icons.Outlined.AutoAwesome
-        SafetyLevel.Watch -> Icons.Outlined.HelpOutline
-        SafetyLevel.Alert -> Icons.Outlined.Shield
-    }
+private fun ExplainerCard(emoji: String, title: String, body: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -287,53 +295,28 @@ private fun AlertCard(alert: SafetyAlert) {
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(alert.level.color.copy(alpha = 0.15f)),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = alert.level.color,
-                modifier = Modifier.size(20.dp),
-            )
+            Text(emoji, fontSize = 22.sp)
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                alert.title,
+                title,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
             )
+            Spacer(Modifier.height(2.dp))
             Text(
-                alert.description,
+                body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
             )
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    alert.source,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "\u2022",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    alert.timeAgo,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                )
-            }
         }
     }
 }

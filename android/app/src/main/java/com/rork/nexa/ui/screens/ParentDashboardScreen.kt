@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.rork.nexa.data.AppState
 
 @Composable
 fun ParentDashboardScreen(navController: NavController) {
@@ -58,7 +59,7 @@ fun ParentDashboardScreen(navController: NavController) {
         item { SectionHeader("This week's overview") }
         item { OverviewGrid() }
         item { SectionHeader("Activity") }
-        item { ActivityList() }
+        item { EmptyActivityCard() }
         item { SectionHeader("What you can and can't see") }
         item { PrivacyExplainer() }
     }
@@ -97,7 +98,7 @@ private fun ParentHeader(onBack: () -> Unit) {
                 fontSize = 22.sp,
             )
             Text(
-                "for Alex's account",
+                if (AppState.username.isNotBlank()) "for @${AppState.username}" else "for your account",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
             )
@@ -140,7 +141,7 @@ private fun TransparencyBanner() {
                 fontSize = 14.sp,
             )
             Text(
-                "Alex knows you can see this. No hidden monitoring.",
+                "They know you can see this. No hidden monitoring.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
             )
@@ -279,35 +280,45 @@ private fun OverviewTile(
 }
 
 @Composable
-private fun ActivityList() {
-    Column(
+private fun EmptyActivityCard() {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ActivityRow(
-            icon = Icons.Outlined.PersonAdd,
-            title = "Added 3 friends",
-            subtitle = "Maya, Jordan, Sam",
-            time = "today",
-        )
-        ActivityDivider()
-        ActivityRow(
-            icon = Icons.Outlined.Group,
-            title = "Joined a group",
-            subtitle = "Pickup Football \u00b7 11 members",
-            time = "Wed",
-        )
-        ActivityDivider()
-        ActivityRow(
-            icon = Icons.Outlined.Shield,
-            title = "Shield level set to Medium",
-            subtitle = "Balanced \u2014 friendly nudges",
-            time = "Mon",
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "No activity yet",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+            )
+            Text(
+                "Safety summaries will show up here.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
     }
 }
 
@@ -368,8 +379,8 @@ private fun PrivacyExplainer() {
         PrivacyLine(Icons.Outlined.Visibility, "You can see safety alerts and patterns", true)
         PrivacyLine(Icons.Outlined.Visibility, "Contact changes \u2014 added, blocked, reported", true)
         PrivacyLine(Icons.Outlined.Visibility, "Activity summaries (no message text)", true)
-        PrivacyLine(Icons.Outlined.VisibilityOff, "You can't read Alex's messages", false)
-        PrivacyLine(Icons.Outlined.VisibilityOff, "You can't see who Alex is texting in real time", false)
+        PrivacyLine(Icons.Outlined.VisibilityOff, "You can't read their messages", false)
+        PrivacyLine(Icons.Outlined.VisibilityOff, "You can't see who they're texting in real time", false)
     }
 }
 

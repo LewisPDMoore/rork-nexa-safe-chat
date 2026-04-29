@@ -23,16 +23,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -58,18 +62,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.rork.nexa.data.AppState
-import com.rork.nexa.data.MockData
 import com.rork.nexa.models.Chat
 import com.rork.nexa.models.SafetyLevel
-import com.rork.nexa.models.SuggestedFriend
 import com.rork.nexa.ui.components.Avatar
 import com.rork.nexa.ui.components.Dot
+import com.rork.nexa.ui.components.EmojiAvatar
+import com.rork.nexa.ui.components.VibePickerSheet
 
 @Composable
 fun ChatsScreen(navController: NavController) {
     val chats = AppState.chats
     var search by remember { mutableStateOf("") }
     var showNewChat by remember { mutableStateOf(false) }
+    var showVibe by remember { mutableStateOf(false) }
 
     val filtered = remember(chats.toList(), search) {
         if (search.isBlank()) chats.toList()
@@ -83,16 +88,23 @@ fun ChatsScreen(navController: NavController) {
         .fillMaxSize()
         .background(MaterialTheme.colorScheme.background)
     ) {
-        if (chats.isEmpty()) {
-            EmptyChatsState(onStart = { showNewChat = true })
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 96.dp),
-            ) {
-                item { ChatsHeader(name = AppState.displayName.ifBlank { "Hi" }) }
-                item { SearchBar(search) { search = it } }
-                item { Spacer(Modifier.height(8.dp)) }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 120.dp),
+        ) {
+            item {
+                ChatsHeader(
+                    name = AppState.displayName.ifBlank { "Hi" },
+                    onAvatarTap = { showVibe = true },
+                )
+            }
+            item { StatusRow(onYourVibe = { showVibe = true }) }
+            item { SearchBar(search) { search = it } }
+            item { Spacer(Modifier.height(8.dp)) }
+
+            if (chats.isEmpty()) {
+                item { EmptyChatsInline(onStart = { showNewChat = true }) }
+            } else {
                 items(filtered, key = { it.id }) { chat ->
                     ChatRow(chat = chat) { navController.navigate("chat/${chat.id}") }
                 }
@@ -107,29 +119,49 @@ fun ChatsScreen(navController: NavController) {
                     }
                 }
             }
-            FloatingNewChat(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 20.dp),
-                onClick = { showNewChat = true },
-            )
         }
+        FloatingNewChat(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 20.dp),
+            onClick = { showNewChat = true },
+        )
     }
 
     if (showNewChat) {
         NewChatSheet(
             onDismiss = { showNewChat = false },
-            onPick = { friend ->
-                val id = AppState.startChat(friend.name, friend.initials, friend.color)
-                showNewChat = false
-                navController.navigate("chat/$id")
+            onAddByUsername = { name ->
+                if (name.isNotBlank()) {
+                    val initials = name.take(2)
+                    val palette = listOf(0xFF7C5CFFL, 0xFFFF6BA8L, 0xFF34E5C8L, 0xFFFFB547L, 0xFF53D593L, 0xFFFF8A8AL)
+                    val color = palette[((name.hashCode() % palette.size) + palette.size) % palette.size]
+                    val id = AppState.startChat(name, initials, color)
+                    showNewChat = false
+                    navController.navigate("chat/$id")
+                }
             },
+        )
+    }
+
+    if (showVibe) {
+        VibePickerSheet(
+            selectedEmoji = AppState.avatarEmoji.ifBlank { "😎" },
+            selectedGradient = AppState.avatarGradientIndex,
+            onPick = { e, g ->
+                AppState.avatarEmoji = e
+                AppState.avatarGradientIndex = g
+                AppState.vibeEmoji = e
+            },
+            onDismiss = { showVibe = false },
+            title = "Your vibe",
+            subtitle = "Update how you show up today.",
         )
     }
 }
 
 @Composable
-private fun ChatsHeader(name: String) {
+private fun ChatsHeader(name: String, onAvatarTap: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -138,38 +170,122 @@ private fun ChatsHeader(name: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "Chats",
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Chats",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                if (AppState.vibeEmoji.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(AppState.vibeEmoji, fontSize = 22.sp)
+                }
+            }
             Text(
                 "$name \u00b7 you're all caught up",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.tertiary,
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                AppState.displayName.take(1).ifBlank { "N" }.uppercase(),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+        Box(modifier = Modifier.clip(CircleShape).clickable { onAvatarTap() }) {
+            EmojiAvatar(
+                emoji = AppState.avatarEmoji,
+                gradientIndex = AppState.avatarGradientIndex,
+                size = 42.dp,
+                fallbackInitials = AppState.displayName.take(1).ifBlank { "N" },
             )
+        }
+    }
+}
+
+@Composable
+private fun StatusRow(onYourVibe: () -> Unit) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .width(72.dp)
+                    .clickable { onYourVibe() },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.sweepGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.tertiary,
+                                        MaterialTheme.colorScheme.primary,
+                                    )
+                                )
+                            ),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.background),
+                    )
+                    EmojiAvatar(
+                        emoji = AppState.avatarEmoji,
+                        gradientIndex = AppState.avatarGradientIndex,
+                        size = 54.dp,
+                        fallbackInitials = AppState.displayName.take(1).ifBlank { "N" },
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Filled.Add, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Your vibe",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        item {
+            Column(
+                horizontalAlignment = Alignment.Start,
+                modifier = Modifier
+                    .width(180.dp)
+                    .height(64.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    "Friend vibes",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Will show up here ✨",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+            }
         }
     }
 }
@@ -237,19 +353,17 @@ private fun SearchBar(value: String, onChange: (String) -> Unit) {
 }
 
 @Composable
-private fun EmptyChatsState(onStart: () -> Unit) {
+private fun EmptyChatsInline(onStart: () -> Unit) {
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 28.dp),
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(120.dp)
-                .clip(RoundedCornerShape(34.dp))
+                .size(96.dp)
+                .clip(RoundedCornerShape(28.dp))
                 .background(
                     Brush.linearGradient(
                         listOf(
@@ -264,27 +378,27 @@ private fun EmptyChatsState(onStart: () -> Unit) {
                 imageVector = Icons.Outlined.Forum,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(44.dp),
             )
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(20.dp))
         Text(
             "No chats yet",
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 24.sp,
+            fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
-            "Say hi to a friend to start your first conversation.",
+            "Invite a friend or add someone by username to start.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(18.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .background(
                     Brush.linearGradient(
                         listOf(
@@ -294,21 +408,21 @@ private fun EmptyChatsState(onStart: () -> Unit) {
                     )
                 )
                 .clickable { onStart() }
-                .padding(horizontal = 24.dp, vertical = 14.dp),
+                .padding(horizontal = 22.dp, vertical = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Outlined.PersonAdd,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     "Start chatting",
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                 )
             }
         }
@@ -319,7 +433,7 @@ private fun EmptyChatsState(onStart: () -> Unit) {
 private fun FloatingNewChat(modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
-            .size(60.dp)
+            .size(68.dp)
             .clip(CircleShape)
             .background(
                 Brush.linearGradient(
@@ -333,10 +447,10 @@ private fun FloatingNewChat(modifier: Modifier = Modifier, onClick: () -> Unit) 
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = Icons.Filled.Add,
+            imageVector = Icons.Outlined.PhotoCamera,
             contentDescription = "New chat",
             tint = Color.White,
-            modifier = Modifier.size(28.dp),
+            modifier = Modifier.size(30.dp),
         )
     }
 }
@@ -381,6 +495,15 @@ private fun ChatRow(chat: Chat, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
+                if (chat.sparks > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "✨${chat.sparks}",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 if (chat.isGroup) {
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -448,11 +571,10 @@ private fun UnreadBadge(count: Int) {
 @Composable
 private fun NewChatSheet(
     onDismiss: () -> Unit,
-    onPick: (SuggestedFriend) -> Unit,
+    onAddByUsername: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val existing = AppState.chats.map { it.name }.toSet()
-    val available = MockData.suggestedFriends.filter { it.name !in existing }
+    var typed by remember { mutableStateOf("") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -474,37 +596,83 @@ private fun NewChatSheet(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Pick a friend or invite someone new.",
+                "Invite someone or add them by username.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
             )
             Spacer(Modifier.height(18.dp))
             QuickAction(
-                icon = Icons.Outlined.PersonAdd,
-                title = "Invite someone to Nexa",
+                icon = Icons.Outlined.Share,
+                title = "Invite a friend to Nexa",
                 subtitle = "Send a private invite link",
                 onClick = onDismiss,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
+            QuickAction(
+                icon = Icons.Outlined.PersonAdd,
+                title = "Sync contacts",
+                subtitle = "Find friends already on Nexa",
+                onClick = onDismiss,
+            )
+            Spacer(Modifier.height(18.dp))
             Text(
-                "FRIENDS ON NEXA",
+                "ADD BY USERNAME",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 1.2.sp,
             )
             Spacer(Modifier.height(8.dp))
-            if (available.isEmpty()) {
-                Text(
-                    "You've already got chats with everyone we know.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(vertical = 16.dp),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.AlternateEmail,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
                 )
-            } else {
-                Column {
-                    available.forEach { f ->
-                        FriendRow(f) { onPick(f) }
+                Spacer(Modifier.width(10.dp))
+                Box(modifier = Modifier.weight(1f)) {
+                    if (typed.isEmpty()) {
+                        Text(
+                            "username",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp,
+                        )
+                    }
+                    BasicTextField(
+                        value = typed,
+                        onValueChange = { typed = it.filter { c -> c.isLetterOrDigit() || c == '_' }.take(20) },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (typed.length >= 2) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable { onAddByUsername(typed) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            "Add",
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }
@@ -543,24 +711,5 @@ private fun QuickAction(
             Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
-    }
-}
-
-@Composable
-private fun FriendRow(friend: SuggestedFriend, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Avatar(initials = friend.initials, color = Color(friend.color), size = 44.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(friend.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-            Text("@${friend.name.lowercase()}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-        }
-        Text("Chat", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     }
 }

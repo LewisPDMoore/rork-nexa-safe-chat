@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.ShieldLevel
-import com.rork.nexa.ui.components.Avatar
+import com.rork.nexa.ui.components.EmojiAvatar
 import com.rork.nexa.ui.theme.ThemeMode
 
 @Composable
@@ -155,19 +155,26 @@ private fun ProfileCard() {
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(
-                initials = AppState.displayName.take(2).ifBlank { "Y" },
-                color = Color.White,
+            EmojiAvatar(
+                emoji = AppState.avatarEmoji,
+                gradientIndex = AppState.avatarGradientIndex,
                 size = 56.dp,
+                fallbackInitials = AppState.displayName.take(2).ifBlank { "Y" },
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    AppState.displayName.ifBlank { "You" },
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        AppState.displayName.ifBlank { "You" },
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                    )
+                    if (AppState.vibeEmoji.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(AppState.vibeEmoji, fontSize = 18.sp)
+                    }
+                }
                 Text(
                     "@${AppState.username.ifBlank { "you" }}",
                     color = Color.White.copy(alpha = 0.85f),
