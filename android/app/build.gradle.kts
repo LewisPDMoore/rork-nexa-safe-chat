@@ -16,16 +16,14 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        buildConfigField(
-            "String",
-            "SUPABASE_URL",
-            "\"${System.getenv("EXPO_PUBLIC_SUPABASE_URL") ?: ""}\""
-        )
-        buildConfigField(
-            "String",
-            "SUPABASE_ANON_KEY",
-            "\"${System.getenv("EXPO_PUBLIC_SUPABASE_ANON_KEY") ?: ""}\""
-        )
+        val supabaseUrl = System.getenv("EXPO_PUBLIC_SUPABASE_URL")
+            ?.takeIf { it.isNotBlank() }
+            ?: "https://xdupmjazhjpyseshnusx.supabase.co"
+        val supabaseAnonKey = System.getenv("EXPO_PUBLIC_SUPABASE_ANON_KEY")
+            ?.takeIf { it.isNotBlank() }
+            ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkdXBtamF6aGpweXNlc2hudXN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0ODQxMzgsImV4cCI6MjA5MzA2MDEzOH0.WXVgbNV1RfPY_wZnW-NSvGN3TPer_CqR7w0AuAu5frM"
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {
