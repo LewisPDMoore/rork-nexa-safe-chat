@@ -49,6 +49,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rork.nexa.viewmodels.ChatsViewModel
 import androidx.compose.ui.platform.LocalContext
 import com.rork.nexa.data.auth.AuthRepository
 import com.rork.nexa.data.auth.Profile
@@ -77,13 +80,14 @@ import com.rork.nexa.ui.components.VibePickerSheet
 
 @Composable
 fun ChatsScreen(navController: NavController) {
-    val chats = AppState.chats
+    val viewModel: ChatsViewModel = viewModel()
+    val chats by viewModel.chats.collectAsStateWithLifecycle()
     var search by remember { mutableStateOf("") }
     var showNewChat by remember { mutableStateOf(false) }
     var showVibe by remember { mutableStateOf(false) }
 
-    val filtered = remember(chats.toList(), search) {
-        if (search.isBlank()) chats.toList()
+    val filtered = remember(chats, search) {
+        if (search.isBlank()) chats
         else chats.filter {
             it.name.contains(search, ignoreCase = true) ||
                 it.lastMessage.contains(search, ignoreCase = true)
@@ -138,19 +142,10 @@ fun ChatsScreen(navController: NavController) {
         NewChatSheet(
             onDismiss = { showNewChat = false },
             onPickUser = { profile ->
-                val display = profile.username
-                val initials = display.take(2).uppercase()
-                val palette = listOf(0xFF7C5CFFL, 0xFFFF6BA8L, 0xFF34E5C8L, 0xFFFFB547L, 0xFF53D593L, 0xFFFF8A8AL)
-                val color = palette[((display.hashCode() % palette.size) + palette.size) % palette.size]
-                val id = AppState.startChat(
-                    name = display,
-                    initials = initials,
-                    avatarColor = color,
-                    targetUserId = profile.id,
-                    username = profile.username,
-                )
                 showNewChat = false
-                navController.navigate("chat/$id")
+                viewModel.startConversation(profile.id) { convId ->
+                    navController.navigate("chat/$convId")
+                }
             },
         )
     }

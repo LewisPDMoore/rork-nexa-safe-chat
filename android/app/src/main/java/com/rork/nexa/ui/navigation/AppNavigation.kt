@@ -19,6 +19,7 @@ import androidx.navigation.navArgument
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.IntroPrefs
 import com.rork.nexa.data.auth.SessionStatus
+import com.rork.nexa.data.chat.ChatRepository
 import com.rork.nexa.ui.screens.AdminDashboardScreen
 import com.rork.nexa.ui.screens.BanScreen
 import com.rork.nexa.ui.screens.ChatDetailScreen
@@ -50,6 +51,9 @@ fun AppNavigation() {
                         avatarGradientIndex = p.avatarGradient,
                     )
                 }
+                s.session.user?.id?.let { uid ->
+                    ChatRepository.get(context).start(uid, s.session.accessToken)
+                }
                 val current = navController.currentBackStackEntry?.destination?.route
                 if (current == null || current == "splash" || current == "login" || current == "onboarding" || current == "banned") {
                     navController.navigate("root") {
@@ -58,6 +62,7 @@ fun AppNavigation() {
                 }
             }
             is SessionStatus.Banned -> {
+                ChatRepository.get(context).stop()
                 AppState.clearUserData()
                 val current = navController.currentBackStackEntry?.destination?.route
                 if (current != "banned") {
@@ -67,6 +72,7 @@ fun AppNavigation() {
                 }
             }
             SessionStatus.Unauthenticated -> {
+                ChatRepository.get(context).stop()
                 AppState.clearUserData()
                 val current = navController.currentBackStackEntry?.destination?.route
                 if (current == null || current == "splash" || current == "root" || current == "vibe" || current == "banned") {

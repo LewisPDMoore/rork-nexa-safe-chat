@@ -58,6 +58,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rork.nexa.viewmodels.ChatDetailViewModel
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import com.rork.nexa.data.auth.AuthRepository
@@ -74,7 +77,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.rork.nexa.data.AppState
 import com.rork.nexa.data.MessageRisk
 import com.rork.nexa.data.analyseMessage
 import com.rork.nexa.data.softerSuggestion
@@ -85,12 +87,15 @@ import com.rork.nexa.ui.components.ReactionBar
 
 @Composable
 fun ChatDetailScreen(chatId: String, navController: NavController) {
-    val chat = remember(chatId) { AppState.chats.firstOrNull { it.id == chatId } }
-    if (chat == null) {
-        LaunchedEffect(Unit) { navController.popBackStack() }
-        return
-    }
-    val messages = AppState.messagesFor(chatId)
+    val vm: ChatDetailViewModel = viewModel()
+    LaunchedEffect(chatId) { vm.bind(chatId) }
+    val messages by vm.messages.collectAsStateWithLifecycle()
+    val isRemoteTyping by vm.isRemoteTyping.collectAsStateWithLifecycle()
+    val peerName by vm.peerName.collectAsStateWithLifecycle()
+    val peerInitials by vm.peerInitials.collectAsStateWithLifecycle()
+    val peerColor by vm.peerColor.collectAsStateWithLifecycle()
+    val peerUserId by vm.peerUserId.collectAsStateWithLifecycle()
+
     var input by remember { mutableStateOf("") }
     val risk by remember { derivedStateOf { analyseMessage(input) } }
     val suggestion by remember { derivedStateOf { softerSuggestion(input) } }
@@ -112,21 +117,21 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
             .imePadding()
     ) {
         ChatHeader(
-            name = chat.name,
-            initials = chat.initials,
-            avatarColor = Color(chat.avatarColor),
-            isTyping = chat.isTyping,
+            name = peerName.ifBlank { "Chat" },
+            initials = peerInitials.ifBlank { "?" },
+            avatarColor = Color(peerColor),
+            isTyping = isRemoteTyping,
             onBack = { navController.popBackStack() },
             onCall = {
                 Toast.makeText(context, "Calling feature coming soon", Toast.LENGTH_SHORT).show()
             },
             onReport = { showReport = true },
-            canReport = chat.targetUserId != null,
+            canReport = peerUserId != null,
         )
 
         if (messages.isEmpty()) {
             EmptyConversation(
-                name = chat.name,
+                name = peerName.ifBlank { "them" },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -149,7 +154,7 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
                         showReactions = reactionTargetId == msg.id,
                         onLongPress = { reactionTargetId = if (reactionTargetId == msg.id) null else msg.id },
                         onPickReaction = { emoji ->
-                            AppState.addReaction(chatId, msg.id, emoji)
+                            vm.toggleReaction(msg.id, emoji)
                             reactionTargetId = null
                         },
                     )
@@ -170,10 +175,10 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
 
         if (showReport) {
             ReportUserDialog(
-                username = chat.username ?: chat.name,
+                username = peerName.ifBlank { "this user" },
                 onDismiss = { showReport = false },
                 onSubmit = { reason ->
-                    val targetId = chat.targetUserId
+                    val targetId = peerUserId
                     showReport = false
                     if (targetId != null) {
                         scope.launch {
@@ -194,10 +199,13 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
 
         ChatInputBar(
             value = input,
-            onChange = { input = it },
+            onChange = {
+                input = it
+                vm.onInputChange(it)
+            },
             onSend = {
                 if (input.isNotBlank()) {
-                    AppState.sendMessage(chatId, input.trim())
+                    vm.send(input)
                     input = ""
                 }
             },
