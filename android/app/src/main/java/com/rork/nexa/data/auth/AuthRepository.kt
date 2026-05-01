@@ -10,6 +10,7 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.headers
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -558,23 +559,21 @@ class AuthRepository private constructor(context: Context) {
 
     private suspend fun patchProfile(
         patch: ProfilePatch,
-        update: (Profile) -> Profile,
+        @Suppress("UNUSED_PARAMETER") update: (Profile) -> Profile,
     ) {
         val auth = requireAuth()
         val uid = auth.session.user?.id ?: error("No user id")
-        val resp = client.post("$supabaseUrl/rest/v1/profiles?id=eq.$uid") {
+        val resp = client.patch("$supabaseUrl/rest/v1/profiles?id=eq.$uid") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
             header("Prefer", "return=minimal")
-            header("X-HTTP-Method-Override", "PATCH")
             contentType(ContentType.Application.Json)
             setBody(patch)
         }
         if (!resp.status.isSuccess()) throw mapError(resp)
-        val current = auth.profile
-        if (current != null) {
-            _status.value = auth.copy(profile = update(current))
-        }
+        // Refetch the current profile from the server so local state mirrors DB.
+        val refreshed = runCatching { fetchProfile(auth.session) }.getOrNull()
+        _status.value = auth.copy(profile = refreshed ?: auth.profile)
     }
 
     private fun requireAuth(): SessionStatus.Authenticated {
