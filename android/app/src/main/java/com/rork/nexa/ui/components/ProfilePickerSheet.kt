@@ -1,9 +1,7 @@
 package com.rork.nexa.ui.components
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
+import android.webkit.MimeTypeMap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,28 +72,30 @@ fun ProfilePickerSheet(
     var uploading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val pickPhoto = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    var showPickMethod by remember { mutableStateOf(false) }
+
+    val handleUri: (Uri) -> Unit = { uri ->
         uploading = true
         error = null
         scope.launch {
+            val mime = resolveImageMime(context, uri)
             val bytes = withContext(Dispatchers.IO) {
                 runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
                     .getOrNull()
             }
-            if (bytes == null) {
+            if (bytes == null || bytes.isEmpty()) {
                 uploading = false
                 error = "Couldn't read that image."
                 return@launch
             }
-            viewModel.uploadProfilePhoto(bytes) { err ->
+            viewModel.uploadProfilePhoto(bytes, mime) { err ->
                 uploading = false
                 error = err
             }
         }
     }
+
+    val capture = rememberMediaCapture(onUri = handleUri)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -149,11 +149,7 @@ fun ProfilePickerSheet(
                 PhotosTab(
                     uploading = uploading,
                     error = error,
-                    onAddPhoto = {
-                        pickPhoto.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
+                    onAddPhoto = { showPickMethod = true },
                     onSetMain = { viewModel.setMainPhoto(it) },
                     onDelete = { viewModel.deletePhoto(it) },
                 )
@@ -170,6 +166,32 @@ fun ProfilePickerSheet(
             Spacer(Modifier.height(20.dp))
         }
     }
+
+    if (showPickMethod) {
+        MediaPickerSheet(
+            title = "Add a photo",
+            onDismiss = { showPickMethod = false },
+            onTakePhoto = {
+                showPickMethod = false
+                capture.takePhoto()
+            },
+            onPickPhoto = {
+                showPickMethod = false
+                capture.pickPhoto()
+            },
+        )
+    }
+}
+
+internal fun resolveImageMime(context: android.content.Context, uri: Uri): String {
+    val fromResolver = context.contentResolver.getType(uri)
+    if (!fromResolver.isNullOrBlank() && fromResolver.startsWith("image/")) return fromResolver
+    val ext = MimeTypeMap.getFileExtensionFromUrl(uri.toString())
+        ?.lowercase()
+        ?.takeIf { it.isNotBlank() }
+    val byExt = ext?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+    if (!byExt.isNullOrBlank() && byExt.startsWith("image/")) return byExt
+    return "image/jpeg"
 }
 
 @Composable

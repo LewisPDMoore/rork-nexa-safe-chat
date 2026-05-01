@@ -124,11 +124,17 @@ class ChatDetailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun sendImage(bytes: ByteArray, caption: String, timerSeconds: Int?, onDone: (String?) -> Unit) {
+    fun sendImage(
+        bytes: ByteArray,
+        mimeType: String = "image/jpeg",
+        caption: String,
+        timerSeconds: Int?,
+        onDone: (String?) -> Unit,
+    ) {
         val convId = _conversationId.value ?: return onDone("No conversation")
         val recipient = _peerUserId.value ?: return onDone("No recipient")
         viewModelScope.launch {
-            val up = auth.uploadChatMedia(convId, bytes)
+            val up = auth.uploadChatMedia(convId, bytes, mimeType)
             val (path, _) = up.getOrElse {
                 onDone(it.message ?: "Upload failed")
                 return@launch

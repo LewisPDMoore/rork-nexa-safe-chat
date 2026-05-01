@@ -31,7 +31,9 @@ import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Nightlight
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Mail
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
@@ -79,10 +81,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.ShieldLevel
 import com.rork.nexa.data.auth.SessionStatus
+import com.rork.nexa.data.auth.StoryRow
 import com.rork.nexa.ui.components.AccountEditSheet
 import com.rork.nexa.ui.components.AccountField
+import com.rork.nexa.ui.components.MediaPickerSheet
 import com.rork.nexa.ui.components.ProfileAvatar
 import com.rork.nexa.ui.components.ProfilePickerSheet
+import com.rork.nexa.ui.components.rememberMediaCapture
+import com.rork.nexa.ui.components.resolveImageMime
+import coil3.compose.AsyncImage
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.rork.nexa.ui.theme.ThemeMode
 import com.rork.nexa.viewmodels.AuthViewModel
 
@@ -95,6 +107,50 @@ fun SettingsScreen(navController: NavController) {
     val isChild = !profile?.parentId.isNullOrBlank()
     var editing by remember { mutableStateOf<AccountField?>(null) }
     var showProfilePicker by remember { mutableStateOf(false) }
+    var showStoryPicker by remember { mutableStateOf(false) }
+    var postingStory by remember { mutableStateOf(false) }
+    var myStories by remember { mutableStateOf<List<StoryRow>>(emptyList()) }
+    val context = LocalContext.current
+    val repo = remember { AuthRepository.get(context) }
+    val storyScope = rememberCoroutineScope()
+    val myUserId = profile?.id
+
+    LaunchedEffect(myUserId) {
+        if (myUserId != null) {
+            myStories = repo.fetchActiveStories(myUserId).getOrNull().orEmpty()
+        } else {
+            myStories = emptyList()
+        }
+    }
+
+    val storyCapture = rememberMediaCapture(onUri = { uri ->
+        postingStory = true
+        storyScope.launch {
+            val mime = resolveImageMime(context, uri)
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
+                    .getOrNull()
+            }
+            if (bytes == null || bytes.isEmpty()) {
+                postingStory = false
+                Toast.makeText(context, "Couldn't read that image.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            authViewModel.postStory(bytes, mime) { err ->
+                postingStory = false
+                if (err != null) {
+                    Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Posted to your story.", Toast.LENGTH_SHORT).show()
+                    myUserId?.let { uid ->
+                        storyScope.launch {
+                            myStories = repo.fetchActiveStories(uid).getOrNull().orEmpty()
+                        }
+                    }
+                }
+            }
+        }
+    })
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -111,7 +167,11 @@ fun SettingsScreen(navController: NavController) {
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = 20.dp),
         )
-        ProfileCard(onTapAvatar = { showProfilePicker = true })
+        ProfileCard(
+            onTapAvatar = { showProfilePicker = true },
+            activeStory = myStories.firstOrNull(),
+            posting = postingStory,
+        )
 
         SettingsSection(title = "Account") {
             LinkRow(
@@ -152,6 +212,18 @@ fun SettingsScreen(navController: NavController) {
                 subtitle = if (AppState.photos.isNotEmpty()) "${AppState.photos.size} photo${if (AppState.photos.size > 1) "s" else ""}" else "Add a photo or pick a vibe",
                 showChevron = true,
                 onClick = { showProfilePicker = true },
+            )
+            Divider()
+            LinkRow(
+                icon = Icons.Outlined.AddCircle,
+                title = if (postingStory) "Posting story\u2026" else "Add to story",
+                subtitle = when {
+                    postingStory -> "Uploading\u2026"
+                    myStories.isNotEmpty() -> "${myStories.size} active \u00b7 expires in 24h"
+                    else -> "Share a photo for 24 hours"
+                },
+                showChevron = true,
+                onClick = { if (!postingStory) showStoryPicker = true },
             )
         }
 
@@ -291,6 +363,21 @@ fun SettingsScreen(navController: NavController) {
             viewModel = authViewModel,
         )
     }
+
+    if (showStoryPicker) {
+        MediaPickerSheet(
+            title = "Add to your story",
+            onDismiss = { showStoryPicker = false },
+            onTakePhoto = {
+                showStoryPicker = false
+                storyCapture.takePhoto()
+            },
+            onPickPhoto = {
+                showStoryPicker = false
+                storyCapture.pickPhoto()
+            },
+        )
+    }
 }
 
 @Composable
@@ -411,7 +498,11 @@ private fun UpdateRow() {
 }
 
 @Composable
-private fun ProfileCard(onTapAvatar: () -> Unit) {
+private fun ProfileCard(
+    onTapAvatar: () -> Unit,
+    activeStory: StoryRow?,
+    posting: Boolean,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -457,28 +548,72 @@ private fun ProfileCard(onTapAvatar: () -> Unit) {
                     fontSize = 13.sp,
                 )
                 Spacer(Modifier.height(10.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.22f))
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.Shield,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(12.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Shield \u00b7 ${AppState.shieldLevel.label}",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.22f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.Shield,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Shield \u00b7 ${AppState.shieldLevel.label}",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    if (activeStory != null || posting) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color.White.copy(alpha = 0.22f))
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AutoStories,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (posting) "Posting\u2026" else "Story live",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
                     }
                 }
+            }
+        }
+        if (activeStory != null) {
+            Spacer(Modifier.height(14.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.6f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.25f)),
+            ) {
+                AsyncImage(
+                    model = activeStory.mediaUrl,
+                    contentDescription = "Your active story",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }

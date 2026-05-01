@@ -1,9 +1,6 @@
 package com.rork.nexa.ui.screens
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -94,10 +91,13 @@ import com.rork.nexa.data.MessageRisk
 import com.rork.nexa.data.analyseMessage
 import com.rork.nexa.data.softerSuggestion
 import com.rork.nexa.models.Message
+import com.rork.nexa.ui.components.MediaPickerSheet
 import com.rork.nexa.ui.components.ProfileAvatar
 import com.rork.nexa.ui.components.ReactionBar
 import com.rork.nexa.ui.components.SnapComposer
 import com.rork.nexa.ui.components.SnapViewer
+import com.rork.nexa.ui.components.rememberMediaCapture
+import com.rork.nexa.ui.components.resolveImageMime
 
 @Composable
 fun ChatDetailScreen(chatId: String, navController: NavController) {
@@ -124,10 +124,9 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
     var pickedImage by remember { mutableStateOf<Uri?>(null) }
     var sending by remember { mutableStateOf(false) }
     var snapView by remember { mutableStateOf<Message?>(null) }
+    var showCameraSheet by remember { mutableStateOf(false) }
 
-    val pickImage = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri -> pickedImage = uri }
+    val capture = rememberMediaCapture(onUri = { uri -> pickedImage = uri })
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
@@ -236,10 +235,21 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
                     input = ""
                 }
             },
-            onCamera = {
-                pickImage.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
+            onCamera = { showCameraSheet = true },
+        )
+    }
+
+    if (showCameraSheet) {
+        MediaPickerSheet(
+            title = "Send a photo",
+            onDismiss = { showCameraSheet = false },
+            onTakePhoto = {
+                showCameraSheet = false
+                capture.takePhoto()
+            },
+            onPickPhoto = {
+                showCameraSheet = false
+                capture.pickPhoto()
             },
         )
     }
@@ -253,16 +263,17 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
             onSend = { caption, timer ->
                 sending = true
                 scope.launch {
+                    val mime = resolveImageMime(context, composerImage)
                     val bytes = withContext(Dispatchers.IO) {
                         runCatching { context.contentResolver.openInputStream(composerImage)?.use { it.readBytes() } }
                             .getOrNull()
                     }
-                    if (bytes == null) {
+                    if (bytes == null || bytes.isEmpty()) {
                         sending = false
                         Toast.makeText(context, "Couldn't read image.", Toast.LENGTH_SHORT).show()
                         return@launch
                     }
-                    vm.sendImage(bytes, caption, timer) { err ->
+                    vm.sendImage(bytes, mime, caption, timer) { err ->
                         sending = false
                         if (err == null) {
                             pickedImage = null

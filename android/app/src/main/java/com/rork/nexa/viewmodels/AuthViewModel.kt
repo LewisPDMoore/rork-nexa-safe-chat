@@ -176,9 +176,16 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun uploadProfilePhoto(bytes: ByteArray, onDone: (String?) -> Unit) {
+    fun uploadProfilePhoto(bytes: ByteArray, mimeType: String = "image/jpeg", onDone: (String?) -> Unit) {
         viewModelScope.launch {
-            val r = repo.uploadProfilePhoto(bytes)
+            val r = repo.uploadProfilePhoto(bytes, mimeType)
+            onDone(r.exceptionOrNull()?.message)
+        }
+    }
+
+    fun postStory(bytes: ByteArray, mimeType: String = "image/jpeg", onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val r = repo.createStory(bytes, mimeType)
             onDone(r.exceptionOrNull()?.message)
         }
     }

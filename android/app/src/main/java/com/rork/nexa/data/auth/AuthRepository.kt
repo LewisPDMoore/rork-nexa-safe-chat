@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.time.Instant
+import java.util.UUID
 
 class AuthRepository private constructor(context: Context) {
 
@@ -282,17 +283,22 @@ class AuthRepository private constructor(context: Context) {
         if (!resp.status.isSuccess()) throw mapError(resp)
     }
 
-    suspend fun uploadProfilePhoto(bytes: ByteArray): Result<String> = runCatching {
+    suspend fun uploadProfilePhoto(bytes: ByteArray, mimeType: String = "image/jpeg"): Result<String> = runCatching {
         val auth = requireAuth()
         val uid = auth.session.user?.id ?: error("No user id")
-        val path = "$uid/${System.currentTimeMillis()}.jpg"
+        val ext = if (mimeType.contains("png", ignoreCase = true)) "png" else "jpg"
+        val path = "$uid/${UUID.randomUUID()}.$ext"
         val resp = client.post("$supabaseUrl/storage/v1/object/profile-pics/$path") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
-            header(HttpHeaders.ContentType, "image/jpeg")
+            header("x-upsert", "true")
+            header(HttpHeaders.ContentType, mimeType)
             setBody(bytes)
         }
-        if (!resp.status.isSuccess()) throw IllegalStateException("Couldn't upload photo (${resp.status.value}).")
+        if (!resp.status.isSuccess()) {
+            val text = runCatching { resp.bodyAsText() }.getOrDefault("")
+            throw IllegalStateException("Couldn't upload photo (${resp.status.value}). $text".trim())
+        }
         val url = "$supabaseUrl/storage/v1/object/public/profile-pics/$path"
         val current = (auth.profile?.photos ?: emptyList()).toMutableList()
         current.add(0, url)
@@ -330,18 +336,89 @@ class AuthRepository private constructor(context: Context) {
         }
     }
 
-    suspend fun uploadChatMedia(conversationId: String, bytes: ByteArray): Result<Pair<String, String>> = runCatching {
+    suspend fun uploadChatMedia(
+        conversationId: String,
+        bytes: ByteArray,
+        mimeType: String = "image/jpeg",
+    ): Result<Pair<String, String>> = runCatching {
         val auth = requireAuth()
-        val path = "$conversationId/${System.currentTimeMillis()}.jpg"
+        val ext = if (mimeType.contains("png", ignoreCase = true)) "png" else "jpg"
+        val path = "$conversationId/${UUID.randomUUID()}.$ext"
         val resp = client.post("$supabaseUrl/storage/v1/object/chat-media/$path") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
-            header(HttpHeaders.ContentType, "image/jpeg")
+            header("x-upsert", "true")
+            header(HttpHeaders.ContentType, mimeType)
             setBody(bytes)
         }
-        if (!resp.status.isSuccess()) throw IllegalStateException("Couldn't upload image (${resp.status.value}).")
+        if (!resp.status.isSuccess()) {
+            val text = runCatching { resp.bodyAsText() }.getOrDefault("")
+            throw IllegalStateException("Couldn't upload image (${resp.status.value}). $text".trim())
+        }
         val url = "$supabaseUrl/storage/v1/object/public/chat-media/$path"
         path to url
+    }
+
+    suspend fun uploadStoryMedia(
+        bytes: ByteArray,
+        mimeType: String = "image/jpeg",
+    ): Result<String> = runCatching {
+        val auth = requireAuth()
+        val uid = auth.session.user?.id ?: error("No user id")
+        val ext = if (mimeType.contains("png", ignoreCase = true)) "png" else "jpg"
+        val path = "$uid/${UUID.randomUUID()}.$ext"
+        val resp = client.post("$supabaseUrl/storage/v1/object/stories/$path") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header("x-upsert", "true")
+            header(HttpHeaders.ContentType, mimeType)
+            setBody(bytes)
+        }
+        if (!resp.status.isSuccess()) {
+            val text = runCatching { resp.bodyAsText() }.getOrDefault("")
+            throw IllegalStateException("Couldn't upload story (${resp.status.value}). $text".trim())
+        }
+        "$supabaseUrl/storage/v1/object/public/stories/$path"
+    }
+
+    suspend fun createStory(
+        bytes: ByteArray,
+        mimeType: String = "image/jpeg",
+    ): Result<StoryRow> = runCatching {
+        val auth = requireAuth()
+        val uid = auth.session.user?.id ?: error("No user id")
+        val mediaUrl = uploadStoryMedia(bytes, mimeType).getOrThrow()
+        val expiresAt = Instant.now().plusSeconds(24 * 3600).toString()
+        val resp = client.post("$supabaseUrl/rest/v1/stories") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header("Prefer", "return=representation")
+            contentType(ContentType.Application.Json)
+            setBody(
+                StoryInsert(
+                    userId = uid,
+                    mediaUrl = mediaUrl,
+                    mediaType = "image",
+                    expiresAt = expiresAt,
+                )
+            )
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        val rows = json.decodeFromString(ListSerializer(StoryRow.serializer()), resp.bodyAsText())
+        rows.firstOrNull() ?: error("Empty response from stories insert")
+    }
+
+    suspend fun fetchActiveStories(userId: String): Result<List<StoryRow>> = runCatching {
+        val auth = requireAuth()
+        val nowIso = Instant.now().toString()
+        val resp = client.get(
+            "$supabaseUrl/rest/v1/stories?user_id=eq.$userId&expires_at=gt.$nowIso&order=created_at.desc"
+        ) {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        json.decodeFromString(ListSerializer(StoryRow.serializer()), resp.bodyAsText())
     }
 
     fun chatMediaPublicUrl(path: String): String =
