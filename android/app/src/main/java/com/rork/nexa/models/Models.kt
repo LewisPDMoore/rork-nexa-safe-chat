@@ -11,18 +11,24 @@ enum class SafetyLevel(val label: String, val color: Color) {
 data class Chat(
     val id: String,
     val name: String,
+    val subtitle: String? = null,
     val lastMessage: String,
     val timestamp: String,
     val unreadCount: Int = 0,
     val safety: SafetyLevel = SafetyLevel.Safe,
     val avatarColor: Long,
     val initials: String,
+    val photoUrl: String? = null,
+    val avatarEmoji: String? = null,
+    val avatarGradient: Int = 0,
     val isTyping: Boolean = false,
     val isGroup: Boolean = false,
     val groupSize: Int = 0,
     val sparks: Int = 0,
     val targetUserId: String? = null,
     val username: String? = null,
+    val displayName: String? = null,
+    val nickname: String? = null,
 )
 
 data class Message(
@@ -32,6 +38,9 @@ data class Message(
     val timestamp: String,
     val flagged: Boolean = false,
     val reactions: List<String> = emptyList(),
+    val imageUrl: String? = null,
+    val imageTimer: Int? = null,
+    val viewed: Boolean = false,
 )
 
 data class SafetyAlert(

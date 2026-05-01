@@ -21,7 +21,9 @@ data class MessageRow(
     @SerialName("conversation_id") val conversationId: String,
     @SerialName("sender_id") val senderId: String,
     @SerialName("recipient_id") val recipientId: String,
-    val text: String,
+    val text: String = "",
+    @SerialName("image_path") val imagePath: String? = null,
+    @SerialName("image_timer") val imageTimer: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
 )
 
@@ -31,6 +33,8 @@ data class MessageInsertBody(
     @SerialName("sender_id") val senderId: String,
     @SerialName("recipient_id") val recipientId: String,
     val text: String,
+    @SerialName("image_path") val imagePath: String? = null,
+    @SerialName("image_timer") val imageTimer: Int? = null,
 )
 
 @Serializable

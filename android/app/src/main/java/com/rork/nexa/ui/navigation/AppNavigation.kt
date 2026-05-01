@@ -18,12 +18,14 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.IntroPrefs
+import com.rork.nexa.data.auth.AuthRepository
 import com.rork.nexa.data.auth.SessionStatus
 import com.rork.nexa.data.chat.ChatRepository
 import com.rork.nexa.ui.screens.AdminDashboardScreen
 import com.rork.nexa.ui.screens.BanScreen
 import com.rork.nexa.ui.screens.ChatDetailScreen
 import com.rork.nexa.ui.screens.FamilyCenterScreen
+import com.rork.nexa.ui.screens.FriendProfileScreen
 import com.rork.nexa.ui.screens.OnboardingScreen
 import com.rork.nexa.ui.screens.ParentDashboardScreen
 import com.rork.nexa.ui.screens.ReportStatusScreen
@@ -47,6 +49,9 @@ fun AppNavigation() {
                 s.profile?.let { p ->
                     AppState.applyProfile(
                         username = p.username,
+                        displayName = p.displayName,
+                        email = p.email,
+                        photos = p.photos,
                         avatarEmoji = p.avatarEmoji,
                         avatarGradientIndex = p.avatarGradient,
                     )
@@ -54,6 +59,9 @@ fun AppNavigation() {
                 s.session.user?.id?.let { uid ->
                     ChatRepository.get(context).start(uid, s.session.accessToken)
                 }
+                val nicks = AuthRepository.get(context).loadNicknames().getOrNull().orEmpty()
+                AppState.nicknames.clear()
+                AppState.nicknames.putAll(nicks)
                 val current = navController.currentBackStackEntry?.destination?.route
                 if (current == null || current == "splash" || current == "login" || current == "onboarding" || current == "banned") {
                     navController.navigate("root") {
@@ -203,6 +211,15 @@ fun AppNavigation() {
             exitTransition = { slideOutHorizontally(tween(240)) { it / 2 } + fadeOut(tween(240)) },
         ) {
             ReportStatusScreen(navController = navController)
+        }
+        composable(
+            route = "profile/{userId}",
+            arguments = listOf(navArgument("userId") { type = NavType.StringType }),
+            enterTransition = { slideInHorizontally(tween(240)) { it / 2 } + fadeIn(tween(240)) },
+            exitTransition = { slideOutHorizontally(tween(240)) { it / 2 } + fadeOut(tween(240)) },
+        ) { entry ->
+            val userId = entry.arguments?.getString("userId") ?: return@composable
+            FriendProfileScreen(userId = userId, navController = navController)
         }
     }
 }

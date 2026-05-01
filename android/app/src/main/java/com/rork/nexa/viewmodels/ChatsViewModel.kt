@@ -3,6 +3,7 @@ package com.rork.nexa.viewmodels
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.rork.nexa.data.AppState
 import com.rork.nexa.data.auth.AuthRepository
 import com.rork.nexa.data.auth.SessionStatus
 import com.rork.nexa.data.chat.ChatRepository
@@ -45,6 +46,16 @@ class ChatsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setNickname(friendId: String, nickname: String?) {
+        viewModelScope.launch {
+            val r = auth.setNickname(friendId, nickname)
+            if (r.isSuccess) {
+                if (nickname.isNullOrBlank()) AppState.nicknames.remove(friendId)
+                else AppState.nicknames[friendId] = nickname.trim()
+            }
+        }
+    }
+
     private fun toChat(
         c: ConversationRow,
         profiles: Map<String, com.rork.nexa.data.auth.Profile>,
@@ -52,24 +63,35 @@ class ChatsViewModel(app: Application) : AndroidViewModel(app) {
     ): Chat {
         val otherId = c.other(myId)
         val p = profiles[otherId]
-        val display = p?.username ?: otherId.take(6)
-        val initials = display.take(2).uppercase()
+        val username = p?.username ?: otherId.take(6)
+        val displayName = p?.displayName?.takeIf { it.isNotBlank() }
+            ?: username.replaceFirstChar { it.uppercase() }
+        val nickname = AppState.nicknames[otherId]
+        val title = nickname?.takeIf { it.isNotBlank() } ?: displayName
+        val subtitle = if (nickname != null) "$displayName · @$username" else "@$username"
+        val initials = title.take(2).uppercase()
         val palette = listOf(
             0xFF7C5CFFL, 0xFFFF6BA8L, 0xFF34E5C8L,
             0xFFFFB547L, 0xFF53D593L, 0xFFFF8A8AL,
         )
-        val color = palette[((display.hashCode() % palette.size) + palette.size) % palette.size]
+        val color = palette[((username.hashCode() % palette.size) + palette.size) % palette.size]
         return Chat(
             id = c.id,
-            name = display,
+            name = title,
+            subtitle = subtitle,
             lastMessage = c.lastMessage,
             timestamp = formatTimestamp(c.lastMessageAt),
             unreadCount = 0,
             safety = SafetyLevel.Safe,
             avatarColor = color,
             initials = initials,
+            photoUrl = p?.photos?.firstOrNull(),
+            avatarEmoji = p?.avatarEmoji,
+            avatarGradient = p?.avatarGradient ?: 0,
             targetUserId = otherId,
-            username = display,
+            username = username,
+            displayName = displayName,
+            nickname = nickname,
         )
     }
 

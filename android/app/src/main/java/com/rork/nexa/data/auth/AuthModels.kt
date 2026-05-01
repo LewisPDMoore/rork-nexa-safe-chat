@@ -55,6 +55,7 @@ data class ProfileInsert(
     val id: String,
     val username: String,
     val email: String,
+    @SerialName("display_name") val displayName: String? = null,
     @SerialName("parent_id") val parentId: String? = null,
 )
 
@@ -63,12 +64,38 @@ data class Profile(
     val id: String,
     val username: String,
     val email: String,
+    @SerialName("display_name") val displayName: String? = null,
+    val photos: List<String> = emptyList(),
     @SerialName("avatar_emoji") val avatarEmoji: String? = null,
     @SerialName("avatar_gradient") val avatarGradient: Int? = null,
     @SerialName("is_admin") val isAdmin: Boolean = false,
     @SerialName("parent_id") val parentId: String? = null,
     @SerialName("banned_until") val bannedUntil: String? = null,
     @SerialName("ban_reason") val banReason: String? = null,
+)
+
+@Serializable
+data class ProfilePatch(
+    @SerialName("display_name") val displayName: String? = null,
+    val username: String? = null,
+    val email: String? = null,
+    val photos: List<String>? = null,
+    @SerialName("avatar_emoji") val avatarEmoji: String? = null,
+    @SerialName("avatar_gradient") val avatarGradient: Int? = null,
+)
+
+@Serializable
+data class AuthUserUpdate(
+    val email: String? = null,
+    val password: String? = null,
+    val data: Map<String, String>? = null,
+)
+
+@Serializable
+data class NicknameRow(
+    @SerialName("owner_id") val ownerId: String,
+    @SerialName("friend_id") val friendId: String,
+    val nickname: String,
 )
 
 @Serializable

@@ -217,6 +217,8 @@ class ChatRepository private constructor(context: Context) {
         conversationId: String,
         recipientId: String,
         text: String,
+        imagePath: String? = null,
+        imageTimer: Int? = null,
     ): Result<Unit> = runCatching {
         val (uid, jwt) = currentAuth() ?: error("Not signed in")
         val resp = rest.post("$supabaseUrl/rest/v1/messages") {
@@ -230,6 +232,8 @@ class ChatRepository private constructor(context: Context) {
                     senderId = uid,
                     recipientId = recipientId,
                     text = text,
+                    imagePath = imagePath,
+                    imageTimer = imageTimer,
                 )
             )
         }

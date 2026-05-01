@@ -7,7 +7,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,6 +78,7 @@ import com.rork.nexa.models.SafetyLevel
 import com.rork.nexa.ui.components.Avatar
 import com.rork.nexa.ui.components.Dot
 import com.rork.nexa.ui.components.EmojiAvatar
+import com.rork.nexa.ui.components.ProfileAvatar
 import com.rork.nexa.ui.components.VibePickerSheet
 
 @Composable
@@ -85,6 +88,7 @@ fun ChatsScreen(navController: NavController) {
     var search by remember { mutableStateOf("") }
     var showNewChat by remember { mutableStateOf(false) }
     var showVibe by remember { mutableStateOf(false) }
+    var nicknameTarget by remember { mutableStateOf<Chat?>(null) }
 
     val filtered = remember(chats, search) {
         if (search.isBlank()) chats
@@ -116,7 +120,11 @@ fun ChatsScreen(navController: NavController) {
                 item { EmptyChatsInline(onStart = { showNewChat = true }) }
             } else {
                 items(filtered, key = { it.id }) { chat ->
-                    ChatRow(chat = chat) { navController.navigate("chat/${chat.id}") }
+                    ChatRow(
+                        chat = chat,
+                        onClick = { navController.navigate("chat/${chat.id}") },
+                        onLongPress = { if (chat.targetUserId != null) nicknameTarget = chat },
+                    )
                 }
                 if (filtered.isEmpty() && search.isNotBlank()) {
                     item {
@@ -146,6 +154,24 @@ fun ChatsScreen(navController: NavController) {
                 viewModel.startConversation(profile.id) { convId ->
                     navController.navigate("chat/$convId")
                 }
+            },
+        )
+    }
+
+    val target = nicknameTarget
+    if (target != null) {
+        ChatNicknameDialog(
+            chat = target,
+            onDismiss = { nicknameTarget = null },
+            onSave = { value ->
+                target.targetUserId?.let { uid ->
+                    viewModel.setNickname(uid, value.takeIf { it.isNotBlank() })
+                }
+                nicknameTarget = null
+            },
+            onClear = {
+                target.targetUserId?.let { uid -> viewModel.setNickname(uid, null) }
+                nicknameTarget = null
             },
         )
     }
@@ -461,19 +487,22 @@ private fun FloatingNewChat(modifier: Modifier = Modifier, onClick: () -> Unit) 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(chat: Chat, onClick: () -> Unit) {
+private fun ChatRow(chat: Chat, onClick: () -> Unit, onLongPress: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            Avatar(
-                initials = chat.initials,
-                color = Color(chat.avatarColor),
+            ProfileAvatar(
+                photoUrl = chat.photoUrl,
+                emoji = chat.avatarEmoji,
+                gradientIndex = chat.avatarGradient,
+                fallbackInitials = chat.initials,
                 size = 52.dp,
             )
             if (chat.safety != SafetyLevel.Safe) {
@@ -525,6 +554,15 @@ private fun ChatRow(chat: Chat, onClick: () -> Unit) {
                     fontSize = 11.sp,
                 )
             }
+            if (!chat.subtitle.isNullOrBlank()) {
+                Text(
+                    text = chat.subtitle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isTyping) {
@@ -553,6 +591,65 @@ private fun ChatRow(chat: Chat, onClick: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun ChatNicknameDialog(
+    chat: Chat,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    var value by remember { mutableStateOf(chat.nickname.orEmpty()) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (chat.nickname.isNullOrBlank()) "Set nickname" else "Change nickname") },
+        text = {
+            Column {
+                Text(
+                    "Only you'll see this nickname for ${chat.displayName ?: chat.name}.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    if (value.isEmpty()) {
+                        Text("Nickname", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                    }
+                    BasicTextField(
+                        value = value,
+                        onValueChange = { value = it.take(30) },
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onSave(value.trim()) }) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (!chat.nickname.isNullOrBlank()) {
+                    androidx.compose.material3.TextButton(onClick = onClear) { Text("Clear") }
+                }
+                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable

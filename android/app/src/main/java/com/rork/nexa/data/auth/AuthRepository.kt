@@ -11,6 +11,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -89,6 +90,7 @@ class AuthRepository private constructor(context: Context) {
     suspend fun signUp(
         email: String,
         username: String,
+        displayName: String,
         password: String,
         parentId: String? = null,
     ): Result<Unit> = runCatching {
@@ -96,7 +98,14 @@ class AuthRepository private constructor(context: Context) {
         val resp: HttpResponse = client.post("$supabaseUrl/auth/v1/signup") {
             anonHeaders()
             contentType(ContentType.Application.Json)
-            setBody(SignUpRequest(email = email.trim(), password = password, data = mapOf("username" to username.trim())))
+            setBody(SignUpRequest(
+                email = email.trim(),
+                password = password,
+                data = mapOf(
+                    "username" to username.trim(),
+                    "display_name" to displayName.trim(),
+                ),
+            ))
         }
         if (!resp.status.isSuccess()) throw mapError(resp)
         val session: AuthSession = json.decodeFromString(AuthSession.serializer(), resp.bodyAsText())
@@ -111,6 +120,7 @@ class AuthRepository private constructor(context: Context) {
                     id = session.user?.id ?: error("No user id from sign up"),
                     username = username.trim().lowercase(),
                     email = email.trim(),
+                    displayName = displayName.trim(),
                     parentId = parentId,
                 )
             )
@@ -206,24 +216,183 @@ class AuthRepository private constructor(context: Context) {
     }
 
     suspend fun saveAvatar(emoji: String, gradientIndex: Int): Result<Unit> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
-        val resp = client.post("$supabaseUrl/rest/v1/profiles?id=eq.${auth.session.user?.id}") {
+        patchProfile(ProfilePatch(avatarEmoji = emoji, avatarGradient = gradientIndex)) { p ->
+            p.copy(avatarEmoji = emoji, avatarGradient = gradientIndex)
+        }
+    }
+
+    suspend fun updateDisplayName(name: String): Result<Unit> = runCatching {
+        val trimmed = name.trim()
+        require(trimmed.isNotBlank()) { "Display name can't be empty." }
+        patchProfile(ProfilePatch(displayName = trimmed)) { it.copy(displayName = trimmed) }
+    }
+
+    suspend fun updateUsername(newUsername: String): Result<Unit> = runCatching {
+        val u = newUsername.trim().lowercase().filter { it.isLetterOrDigit() || it == '_' }
+        require(u.length >= 3) { "Username must be at least 3 characters." }
+        val auth = requireAuth()
+        // check availability
+        val checkResp = client.get("$supabaseUrl/rest/v1/profiles?username=eq.$u&select=id") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
-            header("Prefer", "return=representation")
-            header("X-HTTP-Method-Override", "PATCH")
+        }
+        if (checkResp.status.isSuccess()) {
+            val list = runCatching {
+                json.decodeFromString(ListSerializer(ProfileLookup.serializer()), checkResp.bodyAsText())
+            }.getOrDefault(emptyList())
+            if (list.any { it.id != auth.session.user?.id }) {
+                throw IllegalStateException("That username is already taken.")
+            }
+        }
+        patchProfile(ProfilePatch(username = u)) { it.copy(username = u) }
+    }
+
+    suspend fun updateEmail(newEmail: String): Result<Unit> = runCatching {
+        val e = newEmail.trim()
+        require(e.contains("@")) { "That email doesn't look right." }
+        val auth = requireAuth()
+        val resp = client.put("$supabaseUrl/auth/v1/user") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
             contentType(ContentType.Application.Json)
-            setBody(ProfileAvatarPatch(avatarEmoji = emoji, avatarGradient = gradientIndex))
+            setBody(AuthUserUpdate(email = e))
         }
         if (!resp.status.isSuccess()) throw mapError(resp)
-        val updated = auth.profile?.copy(avatarEmoji = emoji, avatarGradient = gradientIndex)
-        _status.value = auth.copy(profile = updated)
+        patchProfile(ProfilePatch(email = e)) { it.copy(email = e) }
+    }
+
+    suspend fun updatePassword(currentPassword: String, newPassword: String): Result<Unit> = runCatching {
+        require(newPassword.length >= 6) { "Password must be at least 6 characters." }
+        val auth = requireAuth()
+        val email = auth.profile?.email ?: throw IllegalStateException("Couldn't find your email.")
+        // verify current password
+        val verify = client.post("$supabaseUrl/auth/v1/token?grant_type=password") {
+            anonHeaders()
+            contentType(ContentType.Application.Json)
+            setBody(PasswordGrantRequest(email = email, password = currentPassword))
+        }
+        if (!verify.status.isSuccess()) throw IllegalStateException("Current password isn't right.")
+        val resp = client.put("$supabaseUrl/auth/v1/user") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            contentType(ContentType.Application.Json)
+            setBody(AuthUserUpdate(password = newPassword))
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+    }
+
+    suspend fun uploadProfilePhoto(bytes: ByteArray): Result<String> = runCatching {
+        val auth = requireAuth()
+        val uid = auth.session.user?.id ?: error("No user id")
+        val path = "$uid/${System.currentTimeMillis()}.jpg"
+        val resp = client.post("$supabaseUrl/storage/v1/object/profile-pics/$path") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header(HttpHeaders.ContentType, "image/jpeg")
+            setBody(bytes)
+        }
+        if (!resp.status.isSuccess()) throw IllegalStateException("Couldn't upload photo (${resp.status.value}).")
+        val url = "$supabaseUrl/storage/v1/object/public/profile-pics/$path"
+        val current = (auth.profile?.photos ?: emptyList()).toMutableList()
+        current.add(0, url)
+        val capped = current.take(6)
+        patchProfile(ProfilePatch(photos = capped)) { it.copy(photos = capped) }
+        url
+    }
+
+    suspend fun updatePhotos(photos: List<String>): Result<Unit> = runCatching {
+        patchProfile(ProfilePatch(photos = photos)) { it.copy(photos = photos) }
+    }
+
+    suspend fun setMainPhoto(url: String): Result<Unit> = runCatching {
+        val auth = requireAuth()
+        val current = auth.profile?.photos ?: emptyList()
+        val reordered = listOf(url) + current.filter { it != url }
+        patchProfile(ProfilePatch(photos = reordered)) { it.copy(photos = reordered) }
+    }
+
+    suspend fun deletePhoto(url: String): Result<Unit> = runCatching {
+        val auth = requireAuth()
+        val current = auth.profile?.photos ?: emptyList()
+        val reduced = current.filter { it != url }
+        patchProfile(ProfilePatch(photos = reduced)) { it.copy(photos = reduced) }
+        // best-effort delete from storage
+        val prefix = "$supabaseUrl/storage/v1/object/public/profile-pics/"
+        if (url.startsWith(prefix)) {
+            val path = url.removePrefix(prefix)
+            runCatching {
+                client.delete("$supabaseUrl/storage/v1/object/profile-pics/$path") {
+                    anonHeaders()
+                    header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+                }
+            }
+        }
+    }
+
+    suspend fun uploadChatMedia(conversationId: String, bytes: ByteArray): Result<Pair<String, String>> = runCatching {
+        val auth = requireAuth()
+        val path = "$conversationId/${System.currentTimeMillis()}.jpg"
+        val resp = client.post("$supabaseUrl/storage/v1/object/chat-media/$path") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header(HttpHeaders.ContentType, "image/jpeg")
+            setBody(bytes)
+        }
+        if (!resp.status.isSuccess()) throw IllegalStateException("Couldn't upload image (${resp.status.value}).")
+        val url = "$supabaseUrl/storage/v1/object/public/chat-media/$path"
+        path to url
+    }
+
+    fun chatMediaPublicUrl(path: String): String =
+        "$supabaseUrl/storage/v1/object/public/chat-media/$path"
+
+    suspend fun fetchProfileById(userId: String): Result<Profile?> = runCatching {
+        val auth = requireAuth()
+        val resp = client.get("$supabaseUrl/rest/v1/profiles?id=eq.$userId&select=*&limit=1") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        json.decodeFromString(ListSerializer(Profile.serializer()), resp.bodyAsText()).firstOrNull()
+    }
+
+    suspend fun loadNicknames(): Result<Map<String, String>> = runCatching {
+        val auth = requireAuth()
+        val uid = auth.session.user?.id ?: error("No user id")
+        val resp = client.get("$supabaseUrl/rest/v1/nicknames?owner_id=eq.$uid&select=*") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        val rows = json.decodeFromString(ListSerializer(NicknameRow.serializer()), resp.bodyAsText())
+        rows.associate { it.friendId to it.nickname }
+    }
+
+    suspend fun setNickname(friendId: String, nickname: String?): Result<Unit> = runCatching {
+        val auth = requireAuth()
+        val uid = auth.session.user?.id ?: error("No user id")
+        if (nickname.isNullOrBlank()) {
+            val resp = client.delete(
+                "$supabaseUrl/rest/v1/nicknames?owner_id=eq.$uid&friend_id=eq.$friendId"
+            ) {
+                anonHeaders()
+                header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            }
+            if (!resp.status.isSuccess()) throw mapError(resp)
+        } else {
+            val resp = client.post("$supabaseUrl/rest/v1/nicknames") {
+                anonHeaders()
+                header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+                header("Prefer", "resolution=merge-duplicates,return=minimal")
+                contentType(ContentType.Application.Json)
+                setBody(NicknameRow(ownerId = uid, friendId = friendId, nickname = nickname.trim()))
+            }
+            if (!resp.status.isSuccess()) throw mapError(resp)
+        }
     }
 
     suspend fun searchUsersByPrefix(query: String): Result<List<Profile>> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val q = query.trim().lowercase().replace("%", "").replace("_", "")
         if (q.isBlank()) return@runCatching emptyList<Profile>()
         val myId = auth.session.user?.id
@@ -250,8 +419,7 @@ class AuthRepository private constructor(context: Context) {
     }
 
     suspend fun searchUsers(query: String): Result<List<Profile>> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val q = query.trim().lowercase()
         val filter = if (q.isBlank()) "" else "&or=(username.ilike.*$q*,email.ilike.*$q*)"
         val resp = client.get("$supabaseUrl/rest/v1/profiles?select=*&order=username.asc&limit=50$filter") {
@@ -263,8 +431,7 @@ class AuthRepository private constructor(context: Context) {
     }
 
     suspend fun banUser(userId: String, durationHours: Long?, reason: String): Result<Unit> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val until = if (durationHours == null) {
             "9999-12-31T23:59:59Z"
         } else {
@@ -282,8 +449,7 @@ class AuthRepository private constructor(context: Context) {
     }
 
     suspend fun unbanUser(userId: String): Result<Unit> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val resp = client.post("$supabaseUrl/rest/v1/profiles?id=eq.$userId") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
@@ -299,14 +465,19 @@ class AuthRepository private constructor(context: Context) {
         username: String,
         password: String,
     ): Result<Unit> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val parentId = auth.session.user?.id ?: error("No parent id")
         val email = "child+${parentId.take(8)}.${username.lowercase()}@nexa.app"
         val savedSession = auth.session
         val savedProfile = auth.profile
 
-        val result = signUp(email = email, username = username, password = password, parentId = parentId)
+        val result = signUp(
+            email = email,
+            username = username,
+            displayName = username.replaceFirstChar { it.uppercase() },
+            password = password,
+            parentId = parentId,
+        )
         result.getOrThrow()
 
         _status.value = SessionStatus.Authenticated(savedSession, savedProfile)
@@ -319,8 +490,7 @@ class AuthRepository private constructor(context: Context) {
         reason: String,
         contextJson: String? = null,
     ): Result<Unit> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val reporterId = auth.session.user?.id ?: error("No user id")
         val resp = client.post("$supabaseUrl/rest/v1/reports") {
             anonHeaders()
@@ -342,8 +512,7 @@ class AuthRepository private constructor(context: Context) {
     }
 
     suspend fun myReports(): Result<List<ReportRow>> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val uid = auth.session.user?.id ?: error("No user id")
         val resp = client.get("$supabaseUrl/rest/v1/reports?reporter_id=eq.$uid&select=*&order=created_at.desc") {
             anonHeaders()
@@ -354,8 +523,7 @@ class AuthRepository private constructor(context: Context) {
     }
 
     suspend fun pendingReports(): Result<List<ReportRow>> = runCatching {
-        val auth = _status.value as? SessionStatus.Authenticated
-            ?: throw IllegalStateException("Not signed in")
+        val auth = requireAuth()
         val resp = client.get("$supabaseUrl/rest/v1/reports?status=eq.pending&select=*&order=created_at.desc&limit=100") {
             anonHeaders()
             header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
@@ -386,6 +554,32 @@ class AuthRepository private constructor(context: Context) {
             resp.bodyAsText()
         )
         return list.firstOrNull()
+    }
+
+    private suspend fun patchProfile(
+        patch: ProfilePatch,
+        update: (Profile) -> Profile,
+    ) {
+        val auth = requireAuth()
+        val uid = auth.session.user?.id ?: error("No user id")
+        val resp = client.post("$supabaseUrl/rest/v1/profiles?id=eq.$uid") {
+            anonHeaders()
+            header(HttpHeaders.Authorization, "Bearer ${auth.session.accessToken}")
+            header("Prefer", "return=minimal")
+            header("X-HTTP-Method-Override", "PATCH")
+            contentType(ContentType.Application.Json)
+            setBody(patch)
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp)
+        val current = auth.profile
+        if (current != null) {
+            _status.value = auth.copy(profile = update(current))
+        }
+    }
+
+    private fun requireAuth(): SessionStatus.Authenticated {
+        return _status.value as? SessionStatus.Authenticated
+            ?: throw IllegalStateException("Not signed in")
     }
 
     private fun isCurrentlyBanned(until: String?): Boolean {

@@ -15,6 +15,7 @@ data class AuthFormState(
     val email: String = "",
     val identifier: String = "",
     val username: String = "",
+    val displayName: String = "",
     val password: String = "",
     val rememberMe: Boolean = true,
     val showPassword: Boolean = false,
@@ -38,6 +39,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             error = null,
         )
     }
+    fun setDisplayName(value: String) = _form.update { it.copy(displayName = value.take(40), error = null) }
     fun setPassword(value: String) = _form.update { it.copy(password = value, error = null) }
     fun toggleShowPassword() = _form.update { it.copy(showPassword = !it.showPassword) }
     fun setRememberMe(value: Boolean) = _form.update { it.copy(rememberMe = value) }
@@ -49,10 +51,11 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
     fun signUp(onSuccess: () -> Unit) {
         val s = _form.value
         val username = s.username.trim()
+        val displayName = s.displayName.trim()
         val email = s.email.trim()
         val password = s.password
 
-        if (username.isBlank() || email.isBlank() || password.isBlank()) {
+        if (displayName.isBlank() || username.isBlank() || email.isBlank() || password.isBlank()) {
             _form.update { it.copy(error = "All fields are required.") }
             return
         }
@@ -71,7 +74,12 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
         _form.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            val result = repo.signUp(email = email, username = username, password = password)
+            val result = repo.signUp(
+                email = email,
+                username = username,
+                displayName = displayName,
+                password = password,
+            )
             result
                 .onSuccess {
                     _form.update { AuthFormState(rememberMe = true) }
@@ -138,6 +146,49 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             repo.saveAvatar(emoji, gradient)
             onDone()
         }
+    }
+
+    fun updateDisplayName(name: String, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val r = repo.updateDisplayName(name)
+            onDone(r.exceptionOrNull()?.message)
+        }
+    }
+
+    fun updateUsername(username: String, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val r = repo.updateUsername(username)
+            onDone(r.exceptionOrNull()?.message)
+        }
+    }
+
+    fun updateEmail(email: String, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val r = repo.updateEmail(email)
+            onDone(r.exceptionOrNull()?.message)
+        }
+    }
+
+    fun updatePassword(current: String, new: String, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val r = repo.updatePassword(current, new)
+            onDone(r.exceptionOrNull()?.message)
+        }
+    }
+
+    fun uploadProfilePhoto(bytes: ByteArray, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val r = repo.uploadProfilePhoto(bytes)
+            onDone(r.exceptionOrNull()?.message)
+        }
+    }
+
+    fun setMainPhoto(url: String) {
+        viewModelScope.launch { repo.setMainPhoto(url) }
+    }
+
+    fun deletePhoto(url: String) {
+        viewModelScope.launch { repo.deletePhoto(url) }
     }
 
     private fun isValidEmail(value: String): Boolean {

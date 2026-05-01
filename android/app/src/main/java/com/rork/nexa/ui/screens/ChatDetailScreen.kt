@@ -1,5 +1,9 @@
 package com.rork.nexa.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -17,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,13 +41,17 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.AddReaction
+import androidx.compose.material.icons.outlined.AllInclusive
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.LockClock
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,7 +73,9 @@ import com.rork.nexa.viewmodels.ChatDetailViewModel
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import com.rork.nexa.data.auth.AuthRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,18 +83,21 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil3.compose.AsyncImage
 import com.rork.nexa.data.MessageRisk
 import com.rork.nexa.data.analyseMessage
 import com.rork.nexa.data.softerSuggestion
 import com.rork.nexa.models.Message
-import com.rork.nexa.ui.components.Avatar
-import com.rork.nexa.ui.components.Dot
+import com.rork.nexa.ui.components.ProfileAvatar
 import com.rork.nexa.ui.components.ReactionBar
+import com.rork.nexa.ui.components.SnapComposer
+import com.rork.nexa.ui.components.SnapViewer
 
 @Composable
 fun ChatDetailScreen(chatId: String, navController: NavController) {
@@ -92,8 +106,10 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val isRemoteTyping by vm.isRemoteTyping.collectAsStateWithLifecycle()
     val peerName by vm.peerName.collectAsStateWithLifecycle()
+    val peerUsername by vm.peerUsername.collectAsStateWithLifecycle()
     val peerInitials by vm.peerInitials.collectAsStateWithLifecycle()
     val peerColor by vm.peerColor.collectAsStateWithLifecycle()
+    val peerPhotoUrl by vm.peerPhotoUrl.collectAsStateWithLifecycle()
     val peerUserId by vm.peerUserId.collectAsStateWithLifecycle()
 
     var input by remember { mutableStateOf("") }
@@ -105,6 +121,13 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
     val repo = remember { AuthRepository.get(context) }
     val scope = rememberCoroutineScope()
     var showReport by remember { mutableStateOf(false) }
+    var pickedImage by remember { mutableStateOf<Uri?>(null) }
+    var sending by remember { mutableStateOf(false) }
+    var snapView by remember { mutableStateOf<Message?>(null) }
+
+    val pickImage = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> pickedImage = uri }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
@@ -118,6 +141,8 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
     ) {
         ChatHeader(
             name = peerName.ifBlank { "Chat" },
+            username = peerUsername,
+            photoUrl = peerPhotoUrl,
             initials = peerInitials.ifBlank { "?" },
             avatarColor = Color(peerColor),
             isTyping = isRemoteTyping,
@@ -126,6 +151,7 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
                 Toast.makeText(context, "Calling feature coming soon", Toast.LENGTH_SHORT).show()
             },
             onReport = { showReport = true },
+            onProfile = { peerUserId?.let { navController.navigate("profile/$it") } },
             canReport = peerUserId != null,
         )
 
@@ -157,6 +183,7 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
                             vm.toggleReaction(msg.id, emoji)
                             reactionTargetId = null
                         },
+                        onTapSnap = { snapView = msg },
                     )
                 }
             }
@@ -209,6 +236,55 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
                     input = ""
                 }
             },
+            onCamera = {
+                pickImage.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+        )
+    }
+
+    val composerImage = pickedImage
+    if (composerImage != null) {
+        SnapComposer(
+            imageUri = composerImage,
+            sending = sending,
+            onCancel = { if (!sending) pickedImage = null },
+            onSend = { caption, timer ->
+                sending = true
+                scope.launch {
+                    val bytes = withContext(Dispatchers.IO) {
+                        runCatching { context.contentResolver.openInputStream(composerImage)?.use { it.readBytes() } }
+                            .getOrNull()
+                    }
+                    if (bytes == null) {
+                        sending = false
+                        Toast.makeText(context, "Couldn't read image.", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    vm.sendImage(bytes, caption, timer) { err ->
+                        sending = false
+                        if (err == null) {
+                            pickedImage = null
+                        } else {
+                            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    val viewing = snapView
+    if (viewing?.imageUrl != null && viewing.imageTimer != null && viewing.imageTimer > 0 && !viewing.viewed) {
+        SnapViewer(
+            imageUrl = viewing.imageUrl,
+            timerSeconds = viewing.imageTimer,
+            caption = viewing.text.takeIf { it.isNotBlank() },
+            onClose = {
+                vm.markSnapViewed(viewing.id)
+                snapView = null
+            },
         )
     }
 }
@@ -216,12 +292,15 @@ fun ChatDetailScreen(chatId: String, navController: NavController) {
 @Composable
 private fun ChatHeader(
     name: String,
+    username: String,
+    photoUrl: String?,
     initials: String,
     avatarColor: Color,
     isTyping: Boolean,
     onBack: () -> Unit,
     onCall: () -> Unit,
     onReport: () -> Unit,
+    onProfile: () -> Unit,
     canReport: Boolean,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -235,22 +314,34 @@ private fun ChatHeader(
     ) {
         IconBtn(Icons.AutoMirrored.Filled.ArrowBack, onBack)
         Spacer(Modifier.width(4.dp))
-        Avatar(initials = initials, color = avatarColor, size = 40.dp)
+        Box(modifier = Modifier.clip(CircleShape).clickable { onProfile() }) {
+            ProfileAvatar(
+                photoUrl = photoUrl,
+                emoji = null,
+                gradientIndex = 0,
+                fallbackInitials = initials,
+                size = 40.dp,
+            )
+        }
         Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { onProfile() },
+        ) {
             Text(
                 name,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Dot(color = MaterialTheme.colorScheme.secondary, size = 6.dp)
-                Spacer(Modifier.width(6.dp))
+            if (username.isNotBlank()) {
                 Text(
-                    if (isTyping) "typing\u2026" else "active now",
+                    "@$username${if (isTyping) " · typing\u2026" else ""}",
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isTyping) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (isTyping) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
         }
@@ -262,6 +353,13 @@ private fun ChatHeader(
                 expanded = menuOpen,
                 onDismissRequest = { menuOpen = false },
             ) {
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(Icons.Outlined.AccountCircle, null, modifier = Modifier.size(18.dp))
+                    },
+                    text = { Text("Profile") },
+                    onClick = { menuOpen = false; onProfile() },
+                )
                 DropdownMenuItem(
                     text = { Text(if (canReport) "Report user" else "Report unavailable") },
                     enabled = canReport,
@@ -409,6 +507,7 @@ private fun MessageBubble(
     showReactions: Boolean,
     onLongPress: () -> Unit,
     onPickReaction: (String) -> Unit,
+    onTapSnap: () -> Unit,
 ) {
     val isMe = msg.isMe
     val bubbleShape = RoundedCornerShape(
@@ -438,31 +537,53 @@ private fun MessageBubble(
                 horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
                 modifier = Modifier.widthIn(max = 280.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .clip(bubbleShape)
-                        .then(
-                            if (isMe) {
-                                Modifier.background(
-                                    Brush.linearGradient(
-                                        listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.tertiary,
-                                        )
-                                    )
-                                )
-                            } else {
-                                Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                            }
+                when {
+                    msg.imageUrl != null && msg.imageTimer != null && msg.imageTimer > 0 -> {
+                        SnapBubble(
+                            isMe = isMe,
+                            timer = msg.imageTimer,
+                            viewed = msg.viewed,
+                            caption = msg.text,
+                            onTap = { if (!msg.viewed && !isMe) onTapSnap() },
+                            onLongPress = onLongPress,
                         )
-                        .combinedClickable(onClick = {}, onLongClick = onLongPress)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        text = msg.text,
-                        color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.5.sp,
-                    )
+                    }
+                    msg.imageUrl != null -> {
+                        ImageBubble(
+                            url = msg.imageUrl,
+                            caption = msg.text,
+                            isMe = isMe,
+                            onLongPress = onLongPress,
+                        )
+                    }
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .clip(bubbleShape)
+                                .then(
+                                    if (isMe) {
+                                        Modifier.background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.primary,
+                                                    MaterialTheme.colorScheme.tertiary,
+                                                )
+                                            )
+                                        )
+                                    } else {
+                                        Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                                    }
+                                )
+                                .combinedClickable(onClick = {}, onLongClick = onLongPress)
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Text(
+                                text = msg.text,
+                                color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.5.sp,
+                            )
+                        }
+                    }
                 }
                 if (msg.reactions.isNotEmpty()) {
                     Row(
@@ -484,6 +605,116 @@ private fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ImageBubble(
+    url: String,
+    caption: String,
+    isMe: Boolean,
+    onLongPress: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 240.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .combinedClickable(onClick = {}, onLongClick = onLongPress),
+        ) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .widthIn(max = 240.dp)
+                    .aspectRatio(0.8f),
+            )
+        }
+        if (caption.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        if (isMe) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    caption,
+                    color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SnapBubble(
+    isMe: Boolean,
+    timer: Int,
+    viewed: Boolean,
+    caption: String,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val unviewedBrush = Brush.linearGradient(
+        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
+    )
+    Column(horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .then(
+                    if (viewed) Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                    else Modifier.background(unviewedBrush)
+                )
+                .combinedClickable(onClick = onTap, onLongClick = onLongPress)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = if (viewed) Icons.Outlined.Visibility else Icons.Outlined.LockClock,
+                contentDescription = null,
+                tint = if (viewed) MaterialTheme.colorScheme.onSurfaceVariant else Color.White,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(
+                    if (isMe) (if (viewed) "Snap sent" else "Snap · ${timer}s")
+                    else (if (viewed) "Viewed" else "Tap to view · ${timer}s"),
+                    color = if (viewed) MaterialTheme.colorScheme.onSurface else Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                )
+                if (!isMe && !viewed) {
+                    Text(
+                        "Disappears after viewing",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+        }
+        if (caption.isNotBlank() && viewed) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }
@@ -552,6 +783,7 @@ private fun ChatInputBar(
     value: String,
     onChange: (String) -> Unit,
     onSend: () -> Unit,
+    onCamera: () -> Unit,
 ) {
     val sendEnabled = value.isNotBlank()
 
@@ -563,7 +795,7 @@ private fun ChatInputBar(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CameraButton()
+        CameraButton(onClick = onCamera)
         Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier
@@ -612,7 +844,7 @@ private fun ChatInputBar(
 }
 
 @Composable
-private fun CameraButton() {
+private fun CameraButton(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(44.dp)
@@ -625,12 +857,12 @@ private fun CameraButton() {
                     )
                 )
             )
-            .clickable { },
+            .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = Icons.Outlined.PhotoCamera,
-            contentDescription = "Camera",
+            contentDescription = "Send a snap",
             tint = Color.White,
             modifier = Modifier.size(22.dp),
         )

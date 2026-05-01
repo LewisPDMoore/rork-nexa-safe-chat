@@ -30,7 +30,11 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Nightlight
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.Mail
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -75,7 +79,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rork.nexa.data.AppState
 import com.rork.nexa.data.ShieldLevel
 import com.rork.nexa.data.auth.SessionStatus
-import com.rork.nexa.ui.components.EmojiAvatar
+import com.rork.nexa.ui.components.AccountEditSheet
+import com.rork.nexa.ui.components.AccountField
+import com.rork.nexa.ui.components.ProfileAvatar
+import com.rork.nexa.ui.components.ProfilePickerSheet
 import com.rork.nexa.ui.theme.ThemeMode
 import com.rork.nexa.viewmodels.AuthViewModel
 
@@ -86,6 +93,8 @@ fun SettingsScreen(navController: NavController) {
     val profile = (status as? SessionStatus.Authenticated)?.profile
     val isAdmin = profile?.isAdmin == true
     val isChild = !profile?.parentId.isNullOrBlank()
+    var editing by remember { mutableStateOf<AccountField?>(null) }
+    var showProfilePicker by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -102,7 +111,49 @@ fun SettingsScreen(navController: NavController) {
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = 20.dp),
         )
-        ProfileCard()
+        ProfileCard(onTapAvatar = { showProfilePicker = true })
+
+        SettingsSection(title = "Account") {
+            LinkRow(
+                icon = Icons.Outlined.Person,
+                title = "Display name",
+                subtitle = AppState.displayName.ifBlank { "Set your name" },
+                showChevron = true,
+                onClick = { editing = AccountField.DisplayName },
+            )
+            Divider()
+            LinkRow(
+                icon = Icons.Outlined.AlternateEmail,
+                title = "Username",
+                subtitle = "@${AppState.username.ifBlank { "username" }}",
+                showChevron = true,
+                onClick = { editing = AccountField.Username },
+            )
+            Divider()
+            LinkRow(
+                icon = Icons.Outlined.Mail,
+                title = "Email",
+                subtitle = AppState.email.ifBlank { "Add an email" },
+                showChevron = true,
+                onClick = { editing = AccountField.Email },
+            )
+            Divider()
+            LinkRow(
+                icon = Icons.Outlined.Lock,
+                title = "Password",
+                subtitle = "Change your password",
+                showChevron = true,
+                onClick = { editing = AccountField.Password },
+            )
+            Divider()
+            LinkRow(
+                icon = Icons.Outlined.AccountCircle,
+                title = "Profile picture",
+                subtitle = if (AppState.photos.isNotEmpty()) "${AppState.photos.size} photo${if (AppState.photos.size > 1) "s" else ""}" else "Add a photo or pick a vibe",
+                showChevron = true,
+                onClick = { showProfilePicker = true },
+            )
+        }
 
         SettingsSection(title = "Appearance") {
             ThemePicker(AppState.themeMode) { AppState.themeMode = it }
@@ -209,6 +260,36 @@ fun SettingsScreen(navController: NavController) {
                 },
             )
         }
+    }
+
+    val editField = editing
+    if (editField != null) {
+        val initial = when (editField) {
+            AccountField.DisplayName -> AppState.displayName
+            AccountField.Username -> AppState.username
+            AccountField.Email -> AppState.email
+            AccountField.Password -> ""
+        }
+        AccountEditSheet(
+            field = editField,
+            initialValue = initial,
+            onDismiss = { editing = null },
+            onSave = { value, current, done ->
+                when (editField) {
+                    AccountField.DisplayName -> authViewModel.updateDisplayName(value, done)
+                    AccountField.Username -> authViewModel.updateUsername(value, done)
+                    AccountField.Email -> authViewModel.updateEmail(value, done)
+                    AccountField.Password -> authViewModel.updatePassword(current.orEmpty(), value, done)
+                }
+            },
+        )
+    }
+
+    if (showProfilePicker) {
+        ProfilePickerSheet(
+            onDismiss = { showProfilePicker = false },
+            viewModel = authViewModel,
+        )
     }
 }
 
@@ -330,7 +411,7 @@ private fun UpdateRow() {
 }
 
 @Composable
-private fun ProfileCard() {
+private fun ProfileCard(onTapAvatar: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -347,12 +428,15 @@ private fun ProfileCard() {
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            EmojiAvatar(
-                emoji = AppState.avatarEmoji,
-                gradientIndex = AppState.avatarGradientIndex,
-                size = 56.dp,
-                fallbackInitials = AppState.displayName.take(2).ifBlank { "Y" },
-            )
+            Box(modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape).clickable { onTapAvatar() }) {
+                ProfileAvatar(
+                    photoUrl = AppState.mainPhotoUrl,
+                    emoji = AppState.avatarEmoji,
+                    gradientIndex = AppState.avatarGradientIndex,
+                    fallbackInitials = AppState.displayName.take(2).ifBlank { "Y" },
+                    size = 56.dp,
+                )
+            }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

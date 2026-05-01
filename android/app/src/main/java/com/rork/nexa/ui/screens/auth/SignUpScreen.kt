@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Mail
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -101,6 +102,15 @@ fun SignUpScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        AuthInputField(
+            value = form.displayName,
+            onChange = viewModel::setDisplayName,
+            placeholder = "Display name",
+            leadingIcon = Icons.Outlined.Person,
+            keyboardType = KeyboardType.Text,
+            imeAction = ImeAction.Next,
+        )
+        Spacer(Modifier.height(12.dp))
         AuthInputField(
             value = form.username,
             onChange = viewModel::setUsername,
